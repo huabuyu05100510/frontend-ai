@@ -1,0 +1,335 @@
+{
+  "meta": {
+    "model": "Xenova/opus-mt-en-zh",
+    "method": "fingerprint-v1",
+    "timestamp": "2026-06-24T10:54:06.547Z",
+    "description": "K-fingerprint alignment: src vectors = last-layer cross-attn K (present.5.encoder.key), tgt vectors = last-layer self-attn K (present.5.decoder.key), cosine argmax"
+  },
+  "cases": [
+    {
+      "src": "The quick brown fox jumps over the lazy dog",
+      "tgt": "棕色的狐狸跳过懒狗",
+      "srcTokens": [
+        {
+          "text": "The",
+          "start": 0,
+          "end": 3
+        },
+        {
+          "text": "quick",
+          "start": 4,
+          "end": 9
+        },
+        {
+          "text": "brown",
+          "start": 10,
+          "end": 15
+        },
+        {
+          "text": "fox",
+          "start": 16,
+          "end": 19
+        },
+        {
+          "text": "jump",
+          "start": 20,
+          "end": 24
+        },
+        {
+          "text": "s",
+          "start": 24,
+          "end": 25
+        },
+        {
+          "text": "over",
+          "start": 26,
+          "end": 30
+        },
+        {
+          "text": "lazy",
+          "start": 35,
+          "end": 39
+        },
+        {
+          "text": "dog",
+          "start": 40,
+          "end": 43
+        }
+      ],
+      "tgtTokens": [
+        {
+          "text": "棕",
+          "start": 0,
+          "end": 1
+        },
+        {
+          "text": "色",
+          "start": 1,
+          "end": 2
+        },
+        {
+          "text": "的",
+          "start": 2,
+          "end": 3
+        },
+        {
+          "text": "狐",
+          "start": 3,
+          "end": 4
+        },
+        {
+          "text": "狸",
+          "start": 4,
+          "end": 5
+        },
+        {
+          "text": "跳",
+          "start": 5,
+          "end": 6
+        },
+        {
+          "text": "过",
+          "start": 6,
+          "end": 7
+        },
+        {
+          "text": "懒",
+          "start": 7,
+          "end": 8
+        },
+        {
+          "text": "狗",
+          "start": 8,
+          "end": 9
+        }
+      ],
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 2,
+          "score": 0.2418
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 2,
+          "score": 0.3278
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 2,
+          "score": 0.222
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 8,
+          "score": 0.2971
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 7,
+          "score": 0.397
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 8,
+          "score": 0.1125
+        },
+        {
+          "tgtIdx": 6,
+          "srcIdx": 4,
+          "score": 0.136
+        },
+        {
+          "tgtIdx": 7,
+          "srcIdx": 8,
+          "score": 0.0937
+        },
+        {
+          "tgtIdx": 8,
+          "srcIdx": 7,
+          "score": 0.2242
+        }
+      ],
+      "method": "fingerprint-v1-lastlayer"
+    },
+    {
+      "src": "I love you",
+      "tgt": "我爱你",
+      "srcTokens": [
+        {
+          "text": "I",
+          "start": 0,
+          "end": 1
+        },
+        {
+          "text": "love",
+          "start": 2,
+          "end": 6
+        },
+        {
+          "text": "you",
+          "start": 7,
+          "end": 10
+        }
+      ],
+      "tgtTokens": [
+        {
+          "text": "我爱你",
+          "start": 0,
+          "end": 3
+        }
+      ],
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 1,
+          "score": 0.2014
+        }
+      ],
+      "method": "fingerprint-v1-lastlayer"
+    },
+    {
+      "src": "Hello world",
+      "tgt": "你好世界",
+      "srcTokens": [
+        {
+          "text": "Hello",
+          "start": 0,
+          "end": 5
+        },
+        {
+          "text": "world",
+          "start": 6,
+          "end": 11
+        }
+      ],
+      "tgtTokens": [
+        {
+          "text": "你好",
+          "start": 0,
+          "end": 2
+        },
+        {
+          "text": "世界",
+          "start": 2,
+          "end": 4
+        }
+      ],
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 1,
+          "score": 0.0982
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.0861
+        }
+      ],
+      "method": "fingerprint-v1-lastlayer"
+    },
+    {
+      "src": "The cat is sleeping",
+      "tgt": "猫在睡觉",
+      "srcTokens": [
+        {
+          "text": "The",
+          "start": 0,
+          "end": 3
+        },
+        {
+          "text": "cat",
+          "start": 4,
+          "end": 7
+        },
+        {
+          "text": "is",
+          "start": 8,
+          "end": 10
+        },
+        {
+          "text": "sleeping",
+          "start": 11,
+          "end": 19
+        }
+      ],
+      "tgtTokens": [
+        {
+          "text": "猫",
+          "start": 0,
+          "end": 1
+        },
+        {
+          "text": "在",
+          "start": 1,
+          "end": 2
+        },
+        {
+          "text": "睡觉",
+          "start": 2,
+          "end": 4
+        }
+      ],
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 1,
+          "score": 0.2052
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.1296
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 1,
+          "score": 0.1811
+        }
+      ],
+      "method": "fingerprint-v1-lastlayer"
+    },
+    {
+      "src": "Open the door",
+      "tgt": "打开门",
+      "srcTokens": [
+        {
+          "text": "Open",
+          "start": 0,
+          "end": 4
+        },
+        {
+          "text": "door",
+          "start": 9,
+          "end": 13
+        }
+      ],
+      "tgtTokens": [
+        {
+          "text": "打开",
+          "start": 0,
+          "end": 2
+        },
+        {
+          "text": "门",
+          "start": 2,
+          "end": 3
+        }
+      ],
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.1933
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.2063
+        }
+      ],
+      "method": "fingerprint-v1-lastlayer"
+    }
+  ]
+}

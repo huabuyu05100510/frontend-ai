@@ -1,0 +1,184 @@
+{
+    "id": "@miaoma/email-sender",
+    "version": "1.0.0",
+    "name": "邮件发送",
+    "description": "支持 SMTP 协议的邮件发送插件，可发送纯文本和 HTML 邮件，支持附件和抄送",
+    "icon": "Mail",
+    "author": {
+        "name": "妙码学院",
+        "email": "support@miaomaedu.com",
+        "url": "https://miaomaedu.com"
+    },
+    "license": "MIT",
+    "homepage": "https://github.com/miaoma/email-sender-plugin",
+    "keywords": ["邮件", "SMTP", "通知", "自动化", "email"],
+    "permissions": ["network", "env:read"],
+    "nodes": [
+        {
+            "type": "send-email",
+            "name": "发送邮件",
+            "description": "通过 SMTP 协议发送邮件",
+            "icon": "Mail",
+            "color": "#6366F1",
+            "category": "communication",
+            "configSchema": {
+                "type": "object",
+                "properties": {
+                    "smtpConfig": {
+                        "type": "object",
+                        "title": "SMTP 配置",
+                        "x-group": "smtp",
+                        "x-order": 1,
+                        "properties": {
+                            "host": {
+                                "type": "string",
+                                "title": "SMTP 服务器",
+                                "description": "例如: smtp.gmail.com, smtp.qq.com",
+                                "x-order": 1
+                            },
+                            "port": {
+                                "type": "number",
+                                "title": "端口",
+                                "default": 587,
+                                "enum": [25, 465, 587],
+                                "enumNames": ["25 (SMTP)", "465 (SSL)", "587 (TLS)"],
+                                "x-order": 2
+                            },
+                            "secure": {
+                                "type": "boolean",
+                                "title": "使用 SSL/TLS",
+                                "default": false,
+                                "x-order": 3
+                            }
+                        },
+                        "required": ["host", "port"]
+                    },
+                    "auth": {
+                        "type": "object",
+                        "title": "认证信息",
+                        "x-group": "auth",
+                        "x-order": 2,
+                        "properties": {
+                            "username": {
+                                "type": "string",
+                                "title": "用户名",
+                                "description": "通常是邮箱地址",
+                                "x-variable": true,
+                                "x-order": 1
+                            },
+                            "password": {
+                                "type": "string",
+                                "title": "密码/授权码",
+                                "description": "部分邮箱需要使用授权码而非密码",
+                                "x-component": "password",
+                                "x-variable": true,
+                                "x-order": 2
+                            }
+                        },
+                        "required": ["username", "password"]
+                    },
+                    "from": {
+                        "type": "string",
+                        "title": "发件人",
+                        "description": "格式: 名称 <email@example.com> 或 email@example.com",
+                        "x-variable": true,
+                        "x-order": 3
+                    },
+                    "to": {
+                        "type": "array",
+                        "title": "收件人",
+                        "items": {
+                            "type": "string",
+                            "format": "email"
+                        },
+                        "minItems": 1,
+                        "x-variable": true,
+                        "x-order": 4
+                    },
+                    "cc": {
+                        "type": "array",
+                        "title": "抄送",
+                        "items": {
+                            "type": "string",
+                            "format": "email"
+                        },
+                        "x-variable": true,
+                        "x-order": 5
+                    },
+                    "bcc": {
+                        "type": "array",
+                        "title": "密送",
+                        "items": {
+                            "type": "string",
+                            "format": "email"
+                        },
+                        "x-variable": true,
+                        "x-order": 6
+                    },
+                    "subject": {
+                        "type": "string",
+                        "title": "邮件主题",
+                        "x-variable": true,
+                        "x-order": 7
+                    },
+                    "body": {
+                        "type": "string",
+                        "title": "邮件正文",
+                        "x-component": "textarea",
+                        "x-component-props": {
+                            "rows": 6
+                        },
+                        "x-variable": true,
+                        "x-order": 8
+                    },
+                    "isHtml": {
+                        "type": "boolean",
+                        "title": "HTML 格式",
+                        "description": "启用后正文将作为 HTML 渲染",
+                        "default": false,
+                        "x-order": 9
+                    },
+                    "replyTo": {
+                        "type": "string",
+                        "title": "回复地址",
+                        "format": "email",
+                        "x-variable": true,
+                        "x-order": 10
+                    }
+                },
+                "required": ["smtpConfig", "auth", "from", "to", "subject", "body"]
+            },
+            "outputs": [
+                {
+                    "name": "messageId",
+                    "type": "string",
+                    "description": "邮件唯一标识符"
+                },
+                {
+                    "name": "accepted",
+                    "type": "array",
+                    "description": "成功发送的收件人列表"
+                },
+                {
+                    "name": "rejected",
+                    "type": "array",
+                    "description": "发送失败的收件人列表"
+                },
+                {
+                    "name": "response",
+                    "type": "string",
+                    "description": "SMTP 服务器响应"
+                }
+            ],
+            "customComponent": "EmailSettings"
+        }
+    ],
+    "main": {
+        "executor": "dist/executor.umd.js",
+        "components": "dist/components.umd.js"
+    },
+    "engines": {
+        "miaoma": ">=1.0.0",
+        "node": ">=18.0.0"
+    }
+}

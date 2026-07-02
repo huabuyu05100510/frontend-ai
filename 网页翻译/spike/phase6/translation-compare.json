@@ -1,0 +1,42 @@
+[
+  {
+    "src": "The quick brown fox jumps over the lazy dog",
+    "opus": "快速棕色狐狸跳过懒懒狗",
+    "nllb": "快速的棕狐跳过惰的狗"
+  },
+  {
+    "src": "I love you",
+    "opus": "我爱你",
+    "nllb": "我爱你."
+  },
+  {
+    "src": "Hello world",
+    "opus": "你好,世界好",
+    "nllb": "你好,世界"
+  },
+  {
+    "src": "The cat is sleeping",
+    "opus": "猫在睡觉",
+    "nllb": "猫正在睡觉"
+  },
+  {
+    "src": "Open the door",
+    "opus": "开门",
+    "nllb": "开门"
+  },
+  {
+    "src": "Neural networks are powerful",
+    "opus": "神经网络很强大",
+    "nllb": "神经网络是强大的"
+  },
+  {
+    "src": "Machine learning models require large datasets",
+    "opus": "机器学习模式需要大型数据集",
+    "nllb": "机器学习模型需要大量的数据集"
+  },
+  {
+    "src": "The weather is nice today",
+    "opus": "今天天气天气不错",
+    "nllb": "今天天气很好"
+  }
+]

@@ -1,0 +1,27 @@
+{
+  "name": "console-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "三个中后台整合 - 多仓库联合开发容器（每个 package 模拟独立仓库）",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:shell": "npm run dev --workspace=@console/shell",
+    "dev:system-a": "npm run dev --workspace=@team-a/user-center",
+    "dev:system-b": "npm run dev --workspace=@team-b/order-center",
+    "dev:system-c": "npm run dev --workspace=@team-c/product-center",
+    "dev:all": "concurrently -n shell,a,b,c -c blue,green,yellow,magenta \"npm:dev:shell\" \"npm:dev:system-a\" \"npm:dev:system-b\" \"npm:dev:system-c\"",
+    "build:shell": "npm run build --workspace=@console/shell",
+    "build:system-a": "npm run build --workspace=@team-a/user-center",
+    "build:system-b": "npm run build --workspace=@team-b/order-center",
+    "build:system-c": "npm run build --workspace=@team-c/product-center",
+    "build:all": "npm run build:shell && npm run build:system-a && npm run build:system-b && npm run build:system-c",
+    "test": "npm test --workspaces --if-present",
+    "test:shell": "npm test --workspace=@console/shell",
+    "test:coverage": "npm run test:coverage --workspace=@console/shell"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

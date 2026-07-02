@@ -1,0 +1,17 @@
+{
+  "name": "smarty-skeleton-chain-toolchain",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r run build",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "typescript": "^5.9.3"
+  }
+}

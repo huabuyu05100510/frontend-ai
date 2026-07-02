@@ -1,0 +1,29 @@
+{
+  "name": "webpage-translator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "网页翻译 + 词级对齐 pipeline",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test:unit": "node --test --test-reporter=spec test/placeholder.test.mjs test/span-projector.test.mjs test/sanitize.test.mjs test/logger.test.mjs test/dom-renderer.test.mjs test/segment-encoder.test.mjs test/marian-crossattn-aligner.test.mjs test/labse-simalign.test.mjs test/ensemble-aligner.test.mjs test/kv-aligner.test.mjs test/translate.test.mjs test/annotation.test.mjs test/annotation-store.test.mjs",
+    "test:e2e": "node --test test/aligned-ui.e2e.test.mjs test/server.e2e.test.mjs test/ui.e2e.test.mjs test/xss.e2e.test.mjs",
+    "test": "npm run test:unit",
+    "test:coverage": "node --test --experimental-test-coverage test/placeholder.test.mjs test/span-projector.test.mjs test/sanitize.test.mjs test/logger.test.mjs test/dom-renderer.test.mjs test/segment-encoder.test.mjs test/marian-crossattn-aligner.test.mjs test/labse-simalign.test.mjs test/ensemble-aligner.test.mjs test/annotation-store.test.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "onnxruntime-node": "^1.27.0"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  }
+}

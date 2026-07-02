@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Transpiler</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    .card { border: 1px solid #ddd; padding: 16px; margin: 10px 0; border-radius: 8px; }
+    button { padding: 10px 20px; background: blue; color: white; border: none; }
+  </style>
+</head>
+<body>
+  <h1>Test Page</h1>
+  <p>This is a test page for Trinity Skeleton</p>
+  <div class="card">
+    <h2>Card Title</h2>
+    <p>This is some card content text.</p>
+    <button>Click Me</button>
+  </div>
+
+  <script src="dist/content.js"></script>
+  <script>
+    // Simulate the chrome runtime
+    window.chrome = {
+      runtime: {
+        onMessage: {
+          addListener: function(cb) {
+            window.__messageListener = cb;
+          }
+        }
+      }
+    };
+
+    // Call showSkeleton directly
+    console.log('Calling showSkeleton...');
+    showSkeleton();
+  </script>
+</body>
+</html>

@@ -1,0 +1,352 @@
+{
+  "summary": {
+    "model": "Helsinki-NLP/opus-mt-en-zh",
+    "route": "C (MarianMT cross-attention)",
+    "totalCases": 8,
+    "avgF1": 0.704,
+    "minF1": 0,
+    "maxF1": 1,
+    "avgMaxAttn": 0.873,
+    "avgLatencyMs": 0,
+    "vsRouteA": {
+      "routeA_avgF1": 0.841,
+      "diff": -0.137
+    }
+  },
+  "cases": [
+    {
+      "caseIdx": 0,
+      "src": "The quick brown fox jumps over the lazy dog",
+      "gen_tgt": "快速棕色狐狸跳过懒懒狗",
+      "note": "模型漏译 'The'/'the'，多译一个 '懒'",
+      "alignedCount": 10,
+      "goldCount": 10,
+      "avgMaxAttn": 0.892,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 0.4,
+        "recall": 0.4,
+        "f1": 0.4000000000000001,
+        "tp": 4,
+        "fp": 6,
+        "fn": 6,
+        "predCount": 10,
+        "goldCount": 10
+      },
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 2,
+          "score": 0.986
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 3,
+          "score": 0.962
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 3,
+          "score": 0.974
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 3,
+          "score": 0.895
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 4,
+          "score": 0.65
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 4,
+          "score": 0.658
+        },
+        {
+          "tgtIdx": 6,
+          "srcIdx": 8,
+          "score": 0.994
+        },
+        {
+          "tgtIdx": 7,
+          "srcIdx": 8,
+          "score": 0.994
+        },
+        {
+          "tgtIdx": 8,
+          "srcIdx": 9,
+          "score": 0.898
+        },
+        {
+          "tgtIdx": 9,
+          "srcIdx": 9,
+          "score": 0.913
+        }
+      ]
+    },
+    {
+      "caseIdx": 1,
+      "src": "I love you",
+      "gen_tgt": "我爱你",
+      "note": "中文整体被压成 1 token",
+      "alignedCount": 1,
+      "goldCount": 1,
+      "avgMaxAttn": 0.975,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 0,
+        "recall": 0,
+        "f1": 0,
+        "tp": 0,
+        "fp": 1,
+        "fn": 1,
+        "predCount": 1,
+        "goldCount": 1
+      },
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 2,
+          "score": 0.975
+        }
+      ]
+    },
+    {
+      "caseIdx": 2,
+      "src": "Hello world",
+      "gen_tgt": "你好,世界好",
+      "note": "模型译为「你好,世界好」",
+      "alignedCount": 3,
+      "goldCount": 2,
+      "avgMaxAttn": 0.88,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 0.3333333333333333,
+        "recall": 0.5,
+        "f1": 0.4,
+        "tp": 1,
+        "fp": 2,
+        "fn": 1,
+        "predCount": 3,
+        "goldCount": 2
+      },
+      "alignments": [
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.68
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 1,
+          "score": 1
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 0,
+          "score": 0.997
+        }
+      ]
+    },
+    {
+      "caseIdx": 3,
+      "src": "The cat is sleeping",
+      "gen_tgt": "猫在睡觉",
+      "alignedCount": 3,
+      "goldCount": 3,
+      "avgMaxAttn": 0.943,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 3,
+        "goldCount": 3
+      },
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 1,
+          "score": 0.987
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 2,
+          "score": 0.876
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 3,
+          "score": 0.968
+        }
+      ]
+    },
+    {
+      "caseIdx": 4,
+      "src": "Open the door",
+      "gen_tgt": "开门",
+      "note": "模型漏译 Open/the，只生成 1 个 tgt token",
+      "alignedCount": 1,
+      "goldCount": 1,
+      "avgMaxAttn": 0.482,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 1,
+        "goldCount": 1
+      },
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 2,
+          "score": 0.482
+        }
+      ]
+    },
+    {
+      "caseIdx": 5,
+      "src": "Neural networks are powerful",
+      "gen_tgt": "神经网络很强大",
+      "alignedCount": 4,
+      "goldCount": 4,
+      "avgMaxAttn": 0.92,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 4,
+        "goldCount": 4
+      },
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.943
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 2,
+          "score": 0.964
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 3,
+          "score": 0.814
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 4,
+          "score": 0.959
+        }
+      ]
+    },
+    {
+      "caseIdx": 6,
+      "src": "Machine learning models require large datasets",
+      "gen_tgt": "机器学习模式需要大型数据集",
+      "note": "「模式」实为「模型」（翻译错误），但 attention 仍应指向 models",
+      "alignedCount": 6,
+      "goldCount": 6,
+      "avgMaxAttn": 0.958,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 0.8333333333333334,
+        "recall": 0.8333333333333334,
+        "f1": 0.8333333333333334,
+        "tp": 5,
+        "fp": 1,
+        "fn": 1,
+        "predCount": 6,
+        "goldCount": 6
+      },
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.995
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.997
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 2,
+          "score": 0.985
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 3,
+          "score": 0.996
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 4,
+          "score": 0.981
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 6,
+          "score": 0.795
+        }
+      ]
+    },
+    {
+      "caseIdx": 7,
+      "src": "The weather is nice today",
+      "gen_tgt": "今天天气天气不错",
+      "note": "模型重复译「天气」",
+      "alignedCount": 4,
+      "goldCount": 4,
+      "avgMaxAttn": 0.936,
+      "latencyMs": 0,
+      "f1": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 4,
+        "goldCount": 4
+      },
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 4,
+          "score": 0.979
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.963
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 1,
+          "score": 0.927
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 3,
+          "score": 0.875
+        }
+      ]
+    }
+  ]
+}

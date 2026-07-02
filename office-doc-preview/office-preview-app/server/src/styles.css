@@ -1,0 +1,7 @@
+
+/* ============ UploadCenterPage ============ */
+.uc-history-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.15);
+  border-color: #7c3aed !important;
+}

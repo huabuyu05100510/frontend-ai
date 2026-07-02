@@ -1,0 +1,44 @@
+/* 模型：claude-sonnet-4-6 */
+/* Dark mode overrides — semantic aliases that flip under [data-theme="dark"] */
+/* AUTO-GENERATED from semantic.ts DARK_OVERRIDES */
+
+:root[data-theme="dark"] {
+  --color-text: var(--slate-1);
+  --color-text-secondary: var(--slate-9);
+  --color-text-tertiary: var(--slate-8);
+  --color-text-placeholder: var(--slate-7);
+  --color-bg: var(--slate-12);
+  --color-bg-canvas: var(--slate-11);
+  --color-bg-subtle: var(--slate-10);
+  --color-bg-hover: var(--slate-9);
+  --color-bg-mask: rgba(0, 0, 0, 0.65);
+  --color-border: var(--slate-8);
+  --color-border-strong: var(--slate-7);
+  --color-border-light: var(--slate-9);
+  --color-primary: var(--blue-5);
+  --color-primary-hover: var(--blue-4);
+  --color-primary-active: var(--blue-7);
+  --color-primary-bg: rgba(64, 150, 255, 0.15);
+  --color-ai: var(--purple-5);
+  --color-ai-bg: rgba(114, 46, 209, 0.18);
+  --color-accent: var(--indigo-5);
+  --color-accent-bg: rgba(79, 70, 229, 0.18);
+  --color-success: var(--green-5);
+  --color-warning: var(--amber-5);
+  --color-danger: var(--red-5);
+  --color-success-bg: rgba(82, 196, 26, 0.15);
+  --color-warning-bg: rgba(250, 173, 20, 0.15);
+  --color-danger-bg: rgba(255, 77, 79, 0.15);
+  --color-info-bg: var(--color-primary-bg);
+  /* ============ Translation UX Overhaul (Phase A.1 Agent 1) ============ */
+  --color-translate-stage-active: var(--blue-5);
+  --color-translate-stage-done: var(--green-5);
+  --color-translate-stage-pending: var(--slate-8);
+  --color-annotation-kind-align: var(--blue-5);
+  --color-annotation-kind-seg: var(--green-5);
+  --color-annotation-kind-alt: var(--purple-5);
+  --color-toast-success: var(--green-5);
+  --color-toast-error: var(--red-5);
+  --color-toast-info: var(--blue-5);
+  --color-toast-warning: var(--amber-5);
+}

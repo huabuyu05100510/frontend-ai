@@ -1,0 +1,104 @@
+{
+  "_comment": "金标准对齐（tgtIdx → srcIdx）。索引基于去掉 [CLS]/[SEP] 后的 token 列表。手工标注，参考语义对齐。",
+  "cases": [
+    {
+      "src": "The quick brown fox jumps over the lazy dog",
+      "tgt": "敏捷的棕色狐狸跳过了懒狗",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 1 },
+        { "tgtIdx": 1, "srcIdx": 1 },
+        { "tgtIdx": 2, "srcIdx": 0 },
+        { "tgtIdx": 3, "srcIdx": 2 },
+        { "tgtIdx": 4, "srcIdx": 2 },
+        { "tgtIdx": 5, "srcIdx": 3 },
+        { "tgtIdx": 6, "srcIdx": 3 },
+        { "tgtIdx": 7, "srcIdx": 4 },
+        { "tgtIdx": 8, "srcIdx": 5 },
+        { "tgtIdx": 9, "srcIdx": 6 },
+        { "tgtIdx": 10, "srcIdx": 7 },
+        { "tgtIdx": 11, "srcIdx": 8 }
+      ]
+    },
+    {
+      "src": "I love you",
+      "tgt": "我爱你",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 1 },
+        { "tgtIdx": 2, "srcIdx": 2 }
+      ]
+    },
+    {
+      "src": "Hello world",
+      "tgt": "你好世界",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 0 },
+        { "tgtIdx": 2, "srcIdx": 1 },
+        { "tgtIdx": 3, "srcIdx": 1 }
+      ]
+    },
+    {
+      "src": "The cat is sleeping",
+      "tgt": "猫在睡觉",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 1 },
+        { "tgtIdx": 1, "srcIdx": 2 },
+        { "tgtIdx": 2, "srcIdx": 3 },
+        { "tgtIdx": 3, "srcIdx": 3 }
+      ]
+    },
+    {
+      "src": "Open the door",
+      "tgt": "打开门",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 0 },
+        { "tgtIdx": 2, "srcIdx": 2 }
+      ]
+    },
+    {
+      "src": "Neural networks are powerful",
+      "tgt": "神经网络很强大",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 1 },
+        { "tgtIdx": 2, "srcIdx": 2 },
+        { "tgtIdx": 3, "srcIdx": 2 },
+        { "tgtIdx": 4, "srcIdx": 3 },
+        { "tgtIdx": 5, "srcIdx": 4 },
+        { "tgtIdx": 6, "srcIdx": 4 }
+      ]
+    },
+    {
+      "src": "Machine learning models require large datasets",
+      "tgt": "机器学习模型需要大量数据",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 0 },
+        { "tgtIdx": 2, "srcIdx": 1 },
+        { "tgtIdx": 3, "srcIdx": 1 },
+        { "tgtIdx": 4, "srcIdx": 2 },
+        { "tgtIdx": 5, "srcIdx": 2 },
+        { "tgtIdx": 6, "srcIdx": 3 },
+        { "tgtIdx": 7, "srcIdx": 3 },
+        { "tgtIdx": 8, "srcIdx": 4 },
+        { "tgtIdx": 9, "srcIdx": 4 },
+        { "tgtIdx": 10, "srcIdx": 5 },
+        { "tgtIdx": 11, "srcIdx": 5 }
+      ]
+    },
+    {
+      "src": "The weather is nice today",
+      "tgt": "今天天气很好",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 4 },
+        { "tgtIdx": 1, "srcIdx": 4 },
+        { "tgtIdx": 2, "srcIdx": 1 },
+        { "tgtIdx": 3, "srcIdx": 1 },
+        { "tgtIdx": 4, "srcIdx": 2 },
+        { "tgtIdx": 5, "srcIdx": 3 }
+      ]
+    }
+  ]
+}

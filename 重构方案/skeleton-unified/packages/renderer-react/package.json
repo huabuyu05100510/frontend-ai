@@ -1,0 +1,29 @@
+{
+  "name": "@skeleton/renderer-react",
+  "version": "1.0.0",
+  "description": "骨架屏 React/H5 渲染组件",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@skeleton/core": "workspace:*",
+    "@skeleton/adapter-web": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/react": "^18.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "head": {
+    "layer": 0,
+    "head": 15
+  },
+  "epoch": 1,
+  "f1": 1.0,
+  "model": "facebook/nllb-200-distilled-600M",
+  "dry_run": true
+}

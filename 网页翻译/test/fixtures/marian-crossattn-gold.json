@@ -1,0 +1,91 @@
+{
+  "_comment": "Route C 金标准。基于 model.generate 实际生成的 tgt token（与参考译文可能不同），按模型真实输出标注。索引基于「去掉特殊 token（<pad>/</s>/空）后」的 token 列表。",
+  "source": "test/fixtures/marian-crossattn.json",
+  "cases": [
+    {
+      "src": "The quick brown fox jumps over the lazy dog",
+      "gen_tgt": "快速棕色狐狸跳过懒懒狗",
+      "note": "模型漏译 'The'/'the'，多译一个 '懒'",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 1 },
+        { "tgtIdx": 1, "srcIdx": 2 },
+        { "tgtIdx": 2, "srcIdx": 2 },
+        { "tgtIdx": 3, "srcIdx": 3 },
+        { "tgtIdx": 4, "srcIdx": 3 },
+        { "tgtIdx": 5, "srcIdx": 4 },
+        { "tgtIdx": 6, "srcIdx": 6 },
+        { "tgtIdx": 7, "srcIdx": 8 },
+        { "tgtIdx": 8, "srcIdx": 8 },
+        { "tgtIdx": 9, "srcIdx": 9 }
+      ]
+    },
+    {
+      "src": "I love you",
+      "gen_tgt": "我爱你",
+      "note": "中文整体被压成 1 token",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 1 }
+      ]
+    },
+    {
+      "src": "Hello world",
+      "gen_tgt": "你好,世界好",
+      "note": "模型译为「你好,世界好」",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 2, "srcIdx": 1 }
+      ]
+    },
+    {
+      "src": "The cat is sleeping",
+      "gen_tgt": "猫在睡觉",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 1 },
+        { "tgtIdx": 1, "srcIdx": 2 },
+        { "tgtIdx": 2, "srcIdx": 3 }
+      ]
+    },
+    {
+      "src": "Open the door",
+      "gen_tgt": "开门",
+      "note": "模型漏译 Open/the，只生成 1 个 tgt token",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 2 }
+      ]
+    },
+    {
+      "src": "Neural networks are powerful",
+      "gen_tgt": "神经网络很强大",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 2 },
+        { "tgtIdx": 2, "srcIdx": 3 },
+        { "tgtIdx": 3, "srcIdx": 4 }
+      ]
+    },
+    {
+      "src": "Machine learning models require large datasets",
+      "gen_tgt": "机器学习模式需要大型数据集",
+      "note": "「模式」实为「模型」（翻译错误），但 attention 仍应指向 models",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 1 },
+        { "tgtIdx": 2, "srcIdx": 2 },
+        { "tgtIdx": 3, "srcIdx": 3 },
+        { "tgtIdx": 4, "srcIdx": 4 },
+        { "tgtIdx": 5, "srcIdx": 5 }
+      ]
+    },
+    {
+      "src": "The weather is nice today",
+      "gen_tgt": "今天天气天气不错",
+      "note": "模型重复译「天气」",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 4 },
+        { "tgtIdx": 1, "srcIdx": 1 },
+        { "tgtIdx": 2, "srcIdx": 1 },
+        { "tgtIdx": 3, "srcIdx": 3 }
+      ]
+    }
+  ]
+}

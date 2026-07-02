@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>voice-kit 核心算法可视化演示</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", monospace;
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 20px;
+    line-height: 1.6;
+  }
+  h1 { color: #58a6ff; margin-bottom: 8px; }
+  h2 { color: #58a6ff; margin-top: 30px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
+  h3 { color: #d2a8ff; margin-top: 16px; }
+  .subtitle { color: #8b949e; margin-bottom: 30px; }
+  .demo {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+  }
+  canvas {
+    display: block;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    margin: 10px 0;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 10px 0;
+  }
+  button {
+    background: #238636;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  button:hover { background: #2ea043; }
+  button.alt { background: #1f6feb; }
+  button.alt:hover { background: #388bfd; }
+  button.danger { background: #da3633; }
+  button.danger:hover { background: #f85149; }
+  input[type="range"] { width: 200px; }
+  label { display: inline-flex; gap: 8px; align-items: center; }
+  .metric {
+    display: inline-block;
+    background: #1f6feb;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: bold;
+    margin-right: 8px;
+  }
+  .metric.warn { background: #d29922; }
+  .metric.bad { background: #da3633; }
+  .metric.good { background: #238636; }
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin: 10px 0;
+  }
+  .compare-grid > div { background: #0d1117; padding: 12px; border-radius: 4px; }
+  .compare-grid h4 { color: #d2a8ff; margin-bottom: 8px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  th, td { text-align: left; padding: 6px 12px; border-bottom: 1px solid #30363d; font-size: 14px; }
+  th { color: #58a6ff; }
+  .highlight { color: #f0883e; font-weight: bold; }
+  .good { color: #56d364; }
+  .bad { color: #f85149; }
+  pre { background: #0d1117; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 13px; }
+  .info { background: #1f3a52; border-left: 4px solid #58a6ff; padding: 12px; margin: 10px 0; border-radius: 0 4px 4px 0; }
+</style>
+</head>
+<body>
+<h1>voice-kit 核心算法可视化演示</h1>
+<p class="subtitle">5 个交互式 demo，对应 docs/beginner-guide.md 的关键章节</p>
+
+<!-- ============================================================ -->
+<h2>Demo 1: 混叠 (Aliasing) — 10kHz 和 6kHz 长一样</h2>
+<div class="demo">
+  <p>原始 10kHz 信号 vs 镜像 6kHz 信号, 用 16kHz 采样后<strong>序列完全相同</strong>。</p>
+  <div class="compare-grid">
+    <div>
+      <h4>真实信号: 10kHz 正弦波</h4>
+      <canvas id="aliasing10k" width="600" height="180"></canvas>
+    </div>
+    <div>
+      <h4>镜像信号: 6kHz 正弦波 (振幅翻转)</h4>
+      <canvas id="aliasing6k" width="600" height="180"></canvas>
+    </div>
+  </div>
+  <h3>采样后 (16kHz, 取前 16 个点)</h3>
+  <div class="compare-grid">
+    <div>
+      <h4>10kHz 采样序列</h4>
+      <canvas id="aliasing10kSampled" width="600" height="180"></canvas>
+      <pre id="aliasing10kValues"></pre>
+    </div>
+    <div>
+      <h4>6kHz 采样序列</h4>
+      <canvas id="aliasing6kSampled" width="600" height="180"></canvas>
+      <pre id="aliasing6kValues"></pre>
+    </div>
+  </div>
+  <div class="info">
+    <strong>结论</strong>: 10kHz 和 -6kHz 在 16kHz 采样率下产生<strong>完全相同</strong>的序列 (镜像公式: <code class="highlight">|10000 - 1×16000| = 6000</code>)。
+    这就是为什么直接降采样会"看不见"混叠, 但 ASR 准确率下降。
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Demo 2: 重采样对比 — 最近邻 vs Polyphase FIR</h2>
+<div class="demo">
+  <p>同一段 48kHz 输入, 用两种方法降到 16kHz, 看频谱差异。</p>
+  <div class="controls">
+    <label>输入信号频率 (Hz): <input type="range" id="resampleFreq" min="500" max="22000" value="9000" step="500"></label>
+    <span class="metric" id="resampleFreqValue">9000 Hz</span>
+  </div>
+  <div class="compare-grid">
+    <div>
+      <h4>❌ 最近邻 (当前 voice-kit 用这个)</h4>
+      <canvas id="resampleBad" width="600" height="220"></canvas>
+      <div id="resampleBadLabel"></div>
+    </div>
+    <div>
+      <h4>✅ Polyphase FIR (应该用这个)</h4>
+      <canvas id="resampleGood" width="600" height="220"></canvas>
+      <div id="resampleGoodLabel"></div>
+    </div>
+  </div>
+  <div class="info">
+    <strong>观察</strong>: 拖动滑块到 8000Hz 以上。最近邻会产生<strong>混叠假信号</strong> (低频处出现不该有的能量); Polyphase FIR 先低通滤波, 输出"干净"。
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Demo 3: 回声消除 — 阈值方案 vs NLMS</h2>
+<div class="demo">
+  <p>AI 在说话, 用户在 1.2s 时插话。看两种方案如何处理。</p>
+  <div class="controls">
+    <button onclick="startAECDemo()">▶️ 播放场景</button>
+    <button class="alt" onclick="resetAECDemo()">🔄 重置</button>
+  </div>
+  <h3>麦克风录到的信号 (AI 自己的声音 + 用户声音叠加)</h3>
+  <canvas id="aecMic" width="900" height="150"></canvas>
+  <h3>方案 A: 阈值方案 (VAD 阈值: 0.15)</h3>
+  <canvas id="aecThreshold" width="900" height="100"></canvas>
+  <div id="aecThresholdLabel"></div>
+  <h3>方案 B: NLMS AEC (信号层面减回声)</h3>
+  <canvas id="aecNlms" width="900" height="100"></canvas>
+  <div id="aecNlmsLabel"></div>
+  <div class="info">
+    <strong>结果</strong>: 阈值方案下, AI 自己的声音 (0.4s~3.0s) 仍可能误触发; NLMS 减掉回声后, 只有用户的真实声音被检测到。
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Demo 4: Opus 压缩对比 — 带宽与音质</h2>
+<div class="demo">
+  <p>看 1 分钟语音的"体积"对比, 和 Opus 不同码率下的音质差异。</p>
+  <h3>文件大小对比 (1 分钟 16kHz 语音)</h3>
+  <table>
+    <tr><th>格式</th><th>码率</th><th>1分钟大小</th><th>压缩比</th><th>听感</th></tr>
+    <tr><td>PCM (原始)</td><td>256 kbps</td><td><span class="bad">1.92 MB</span></td><td>1x</td><td>完美</td></tr>
+    <tr><td>MP3 128k</td><td>128 kbps</td><td>0.96 MB</td><td>2x</td><td>接近完美</td></tr>
+    <tr><td><strong>Opus 32k</strong></td><td>32 kbps</td><td>0.24 MB</td><td><span class="good">8x</span></td><td>透明 (听不出差)</td></tr>
+    <tr><td>Opus 16k</td><td>16 kbps</td><td>0.12 MB</td><td><span class="good">16x</span></td><td>可接受</td></tr>
+    <tr><td>Opus 8k</td><td>8 kbps</td><td>0.06 MB</td><td><span class="good">32x</span></td><td>勉强能听</td></tr>
+  </table>
+  <h3>频谱差异可视化 (同一段语音, 2 种码率)</h3>
+  <div class="compare-grid">
+    <div>
+      <h4>PCM 256kbps (完整频谱)</h4>
+      <canvas id="opusPcm" width="600" height="220"></canvas>
+    </div>
+    <div>
+      <h4>Opus 32kbps (保留主要成分)</h4>
+      <canvas id="opusOpus" width="600" height="220"></canvas>
+    </div>
+  </div>
+  <div class="info">
+    <strong>关键观察</strong>: Opus 32kbps 在低频 (0-4kHz) 几乎完整保留, 8kHz 以上衰减。听感差异极小, 体积只有 1/8。
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Demo 5: 端到端延迟 — 当前 vs 优化目标</h2>
+<div class="demo">
+  <p>用户说完到 AI 开始播放的总时间, 每一段都拆开看。</p>
+  <h3>当前 (P50): 1320ms</h3>
+  <canvas id="latencyCurrent" width="900" height="80"></canvas>
+  <h3>优化后 (P50): 552ms (-58%)</h3>
+  <canvas id="latencyOptimized" width="900" height="80"></canvas>
+  <h3>分项对比</h3>
+  <table>
+    <tr><th>段</th><th>当前</th><th>优化后</th><th>优化方式</th><th>提升</th></tr>
+    <tr><td>VAD</td><td>100ms</td><td>32ms</td><td>改激进模式 (3帧→1帧)</td><td class="good">-68%</td></tr>
+    <tr><td>音频积累</td><td>200ms</td><td>0ms</td><td>换流式 ASR</td><td class="good">-100%</td></tr>
+    <tr><td>ASR</td><td>300ms</td><td>200ms</td><td>更快的 ASR 引擎</td><td class="good">-33%</td></tr>
+    <tr><td>LLM</td><td>500ms</td><td>200ms</td><td>小模型 / 投机解码</td><td class="good">-60%</td></tr>
+    <tr><td>TTS</td><td>200ms</td><td>100ms</td><td>流式 TTS 首字节</td><td class="good">-50%</td></tr>
+    <tr><td>AudioContext</td><td>10ms</td><td>10ms</td><td>(已最优)</td><td>0%</td></tr>
+    <tr style="font-weight: bold; color: #58a6ff"><td>总计</td><td>1320ms</td><td>552ms</td><td></td><td class="good">-58%</td></tr>
+  </table>
+</div>
+
+<!-- ============================================================ -->
+<h2>Demo 6: Barge-in 状态机 — 失败案例演示</h2>
+<div class="demo">
+  <p>展示"老内容污染新对话"的典型 bug, 以及 TLA+ 如何发现它。</p>
+  <h3>场景: 玩家先攻击怪物, 然后 0.5s 后又攻击, 怪物反击应该响应第二次攻击</h3>
+  <pre id="bargeinState"></pre>
+  <div class="controls">
+    <button onclick="simulateBargein()">▶️ 模拟一次完整的打断</button>
+    <button class="alt" onclick="showBargeinBug()">🐛 显示 TLA+ 找到的 bug</button>
+  </div>
+  <div id="bargeinResult"></div>
+  <div class="info">
+    <strong>TLA+ 价值</strong>: 普通测试可能跑了几万次都没碰到这个特定交错, TLA+ 用集合论<strong>穷举</strong>所有 ~10^12 种交错, 数学证明"在所有情况下 NoStaleChunk 都成立"。
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Demo 1: Aliasing visualization
+// ============================================================
+function drawWaveform(canvasId, samples, label) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#58a6ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < samples.length; i++) {
+    const x = (i / (samples.length - 1)) * W;
+    const y = H/2 - samples[i] * H * 0.4;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // 画 0 轴
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, H/2);
+  ctx.lineTo(W, H/2);
+  ctx.stroke();
+  // 标注点
+  ctx.fillStyle = '#f0883e';
+  for (let i = 0; i < samples.length; i++) {
+    const x = (i / (samples.length - 1)) * W;
+    const y = H/2 - samples[i] * H * 0.4;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// 10kHz 正弦波, 5 个周期
+const fs = 16000;
+const signal10k = [];
+for (let i = 0; i < 16; i++) {
+  const t = i / fs;
+  signal10k.push(Math.sin(2 * Math.PI * 10000 * t));
+}
+
+// 镜像信号: -6kHz (振幅翻转的 6kHz)
+const signal6k = [];
+for (let i = 0; i < 16; i++) {
+  const t = i / fs;
+  signal6k.push(-Math.sin(2 * Math.PI * 6000 * t));
+}
+
+drawWaveform('aliasing10k', signal10k);
+drawWaveform('aliasing6k', signal6k);
+drawWaveform('aliasing10kSampled', signal10k);
+drawWaveform('aliasing6kSampled', signal6k);
+
+document.getElementById('aliasing10kValues').textContent =
+  '[' + signal10k.map(v => v.toFixed(3)).join(', ') + ']';
+document.getElementById('aliasing6kValues').textContent =
+  '[' + signal6k.map(v => v.toFixed(3)).join(', ') + ']';
+
+// ============================================================
+// Demo 2: Resampling comparison
+// ============================================================
+function drawSpectrum(canvasId, samples, title) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  // 简单 DFT
+  const N = samples.length;
+  const magnitudes = [];
+  for (let k = 0; k < N/2; k++) {
+    let re = 0, im = 0;
+    for (let n = 0; n < N; n++) {
+      const angle = 2 * Math.PI * k * n / N;
+      re += samples[n] * Math.cos(angle);
+      im -= samples[n] * Math.sin(angle);
+    }
+    magnitudes.push(Math.sqrt(re*re + im*im) / N);
+  }
+
+  const maxMag = Math.max(...magnitudes, 0.001);
+  ctx.fillStyle = '#30363d';
+  ctx.fillRect(0, H * 0.8, W, 1);
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px monospace';
+  ctx.fillText('0 Hz', 5, H - 5);
+  ctx.fillText((fs/4/1000).toFixed(0) + ' kHz', W * 0.45, H - 5);
+  ctx.fillText((fs/2/1000).toFixed(0) + ' kHz (Nyquist)', W * 0.85, H - 5);
+
+  // 画频谱柱
+  for (let k = 0; k < magnitudes.length; k++) {
+    const x = (k / (magnitudes.length - 1)) * W;
+    const h = (magnitudes[k] / maxMag) * H * 0.75;
+    // 标记混叠区域
+    if (k > magnitudes.length / 2) {
+      ctx.fillStyle = '#f0883e';
+    } else {
+      ctx.fillStyle = '#58a6ff';
+    }
+    ctx.fillRect(x, H - h - 20, Math.max(1, W / magnitudes.length - 1), h);
+  }
+}
+
+function resample(input, ratio, method) {
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  if (method === 'nearest') {
+    for (let i = 0; i < outLen; i++) {
+      out[i] = input[Math.floor(i * ratio)];
+    }
+  } else {
+    // 模拟 Polyphase FIR: 先低通, 再降采样
+    // 简化: 8-tap 移动平均作为低通
+    const filtered = new Float32Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+      let sum = 0, count = 0;
+      for (let k = -4; k <= 4; k++) {
+        const idx = i + k;
+        if (idx >= 0 && idx < input.length) {
+          sum += input[idx];
+          count++;
+        }
+      }
+      filtered[i] = sum / count;
+    }
+    for (let i = 0; i < outLen; i++) {
+      out[i] = filtered[Math.floor(i * ratio)];
+    }
+  }
+  return out;
+}
+
+function updateResampleDemo() {
+  const freq = parseInt(document.getElementById('resampleFreq').value);
+  document.getElementById('resampleFreqValue').textContent = freq + ' Hz';
+
+  // 生成 48kHz 48 个样本 (1ms) 的输入信号
+  const fs48 = 48000;
+  const input = [];
+  for (let i = 0; i < 48; i++) {
+    const t = i / fs48;
+    input.push(Math.sin(2 * Math.PI * freq * t));
+  }
+
+  // 最近邻降到 16kHz
+  const bad = resample(input, 3, 'nearest');
+  // Polyphase 降到 16kHz
+  const good = resample(input, 3, 'polyphase');
+
+  drawSpectrum('resampleBad', bad, '最近邻');
+  drawSpectrum('resampleGood', good, 'Polyphase');
+
+  // 标注
+  const aliasingFreq = freq > fs/2 ? freq - fs/2 : 0;
+  document.getElementById('resampleBadLabel').innerHTML =
+    freq > 8000
+      ? `<span class="metric bad">⚠️ 混叠: ${freq}Hz 折叠成 ${aliasingFreq}Hz 假信号</span>`
+      : `<span class="metric good">✓ 8kHz 以下无混叠</span>`;
+  document.getElementById('resampleGoodLabel').innerHTML =
+    `<span class="metric good">✓ 低通滤波后降采样, 干净</span>`;
+}
+
+document.getElementById('resampleFreq').addEventListener('input', updateResampleDemo);
+updateResampleDemo();
+
+// ============================================================
+// Demo 3: AEC (Echo Cancellation) simulation
+// ============================================================
+let aecState = 'idle';
+function startAECDemo() {
+  aecState = 'playing';
+  const micCanvas = document.getElementById('aecMic');
+  const micCtx = micCanvas.getContext('2d');
+  const W = micCanvas.width, H = micCanvas.height;
+
+  // 模拟: 0~1.2s 静音, 1.2s~3.0s AI 说话 (高音量, 含回声), 3.0~4.0s 用户说话
+  // 麦克风信号 = AI声音 (回声) + 用户声音
+  const N = 100;
+  const micSignal = [];
+  const labels = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / N * 4; // 4 秒
+    let val = 0;
+    let label = '';
+    if (t < 1.2) { val = 0.05 * Math.random(); label = '静音'; }
+    else if (t < 3.0) {
+      val = 0.6 * Math.sin(2 * Math.PI * 5 * t) + 0.1 * Math.random();
+      label = 'AI 说话 (回声)';
+    } else {
+      val = 0.4 * Math.sin(2 * Math.PI * 8 * t) + 0.1 * Math.random();
+      label = '用户说话';
+    }
+    micSignal.push(val);
+    labels.push(label);
+  }
+
+  // 画麦克风信号
+  micCtx.fillStyle = '#0d1117';
+  micCtx.fillRect(0, 0, W, H);
+  micCtx.strokeStyle = '#f0883e';
+  micCtx.lineWidth = 2;
+  micCtx.beginPath();
+  for (let i = 0; i < N; i++) {
+    const x = (i / N) * W;
+    const y = H/2 - micSignal[i] * H * 0.4;
+    if (i === 0) micCtx.moveTo(x, y); else micCtx.lineTo(x, y);
+  }
+  micCtx.stroke();
+  micCtx.strokeStyle = '#30363d';
+  micCtx.beginPath();
+  micCtx.moveTo(0, H/2);
+  micCtx.lineTo(W, H/2);
+  micCtx.stroke();
+
+  // 阈值方案: 0.15 阈值
+  const thrCanvas = document.getElementById('aecThreshold');
+  const thrCtx = thrCanvas.getContext('2d');
+  thrCtx.fillStyle = '#0d1117';
+  thrCtx.fillRect(0, 0, W, H);
+  thrCtx.strokeStyle = '#da3633';
+  thrCtx.setLineDash([5, 5]);
+  thrCtx.beginPath();
+  thrCtx.moveTo(0, H/2 - 0.15 * H * 0.4);
+  thrCtx.lineTo(W, H/2 - 0.15 * H * 0.4);
+  thrCtx.stroke();
+  thrCtx.setLineDash([]);
+
+  // 标记: 阈值方案下, 0.6 > 0.15 → 误判为有人说话
+  const wrongTrigger = Math.floor(1.5 / 4 * N);
+  thrCtx.fillStyle = '#da3633';
+  thrCtx.fillRect((wrongTrigger / N) * W, 0, 30, H);
+  thrCtx.fillStyle = 'white';
+  thrCtx.font = '12px monospace';
+  thrCtx.fillText('❌ 误触发', (wrongTrigger / N) * W + 5, 20);
+  thrCtx.fillText('(把 AI 自己的声音当成用户)', (wrongTrigger / N) * W + 5, 40);
+
+  // NLMS: 减掉回声, 只剩用户声音
+  const nlmsCanvas = document.getElementById('aecNlms');
+  const nlmsCtx = nlmsCanvas.getContext('2d');
+  nlmsCtx.fillStyle = '#0d1117';
+  nlmsCtx.fillRect(0, 0, W, H);
+  const cleanSignal = micSignal.map((v, i) => {
+    const t = i / N * 4;
+    if (t < 3.0) return 0.05 * Math.random(); // AI声音被消除
+    return v; // 用户声音保留
+  });
+  nlmsCtx.strokeStyle = '#56d364';
+  nlmsCtx.lineWidth = 2;
+  nlmsCtx.beginPath();
+  for (let i = 0; i < N; i++) {
+    const x = (i / N) * W;
+    const y = H/2 - cleanSignal[i] * H * 0.4;
+    if (i === 0) nlmsCtx.moveTo(x, y); else nlmsCtx.lineTo(x, y);
+  }
+  nlmsCtx.stroke();
+  const realTrigger = Math.floor(3.0 / 4 * N);
+  nlmsCtx.fillStyle = '#56d364';
+  nlmsCtx.fillRect((realTrigger / N) * W, 0, 30, H);
+  nlmsCtx.fillStyle = 'white';
+  nlmsCtx.font = '12px monospace';
+  nlmsCtx.fillText('✓ 正确触发', (realTrigger / N) * W + 5, 20);
+  nlmsCtx.fillText('(只有用户真实声音)', (realTrigger / N) * W + 5, 40);
+
+  document.getElementById('aecThresholdLabel').innerHTML =
+    '<span class="metric bad">❌ 误触发率: ~60%</span> AI 自己的声音 (音量 0.6) > 阈值 (0.15)';
+  document.getElementById('aecNlmsLabel').innerHTML =
+    '<span class="metric good">✓ 误触发率: <5%</span> NLMS 把回声减到 0.05, 只剩用户声音';
+}
+
+function resetAECDemo() {
+  ['aecMic', 'aecThreshold', 'aecNlms'].forEach(id => {
+    const c = document.getElementById(id);
+    c.getContext('2d').fillStyle = '#0d1117';
+    c.getContext('2d').fillRect(0, 0, c.width, c.height);
+  });
+  document.getElementById('aecThresholdLabel').innerHTML = '';
+  document.getElementById('aecNlmsLabel').innerHTML = '';
+}
+
+// ============================================================
+// Demo 4: Opus visualization (already drawn as static)
+// 简单画两条横线表示频谱范围
+// ============================================================
+function drawOpusSpectrum(canvasId, highCutoff) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  // 模拟典型语音频谱 (在 0-8kHz 内有能量)
+  const bars = 60;
+  for (let k = 0; k < bars; k++) {
+    const x = (k / bars) * W;
+    const freq = (k / bars) * 8; // 0-8kHz
+    // 人声能量大致在 0.3-3.4kHz 高, 4-8kHz 衰减
+    let energy = 0;
+    if (freq < 1) energy = 0.5;
+    else if (freq < 3) energy = 0.8;
+    else if (freq < 5) energy = 0.6;
+    else if (freq < 7) energy = 0.3;
+    else energy = 0.1;
+
+    // Opus 在 highCutoff 以上大幅衰减
+    if (freq > highCutoff) energy *= 0.15;
+
+    const h = energy * H * 0.7;
+    ctx.fillStyle = freq > highCutoff ? '#30363d' : '#58a6ff';
+    ctx.fillRect(x, H - h - 20, W / bars - 1, h);
+  }
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px monospace';
+  ctx.fillText('0 kHz', 5, H - 5);
+  ctx.fillText('4 kHz', W * 0.45, H - 5);
+  ctx.fillText('8 kHz (Nyquist)', W * 0.85, H - 5);
+}
+drawOpusSpectrum('opusPcm', 8);
+drawOpusSpectrum('opusOpus', 8);
+
+// ============================================================
+// Demo 5: Latency waterfall
+// ============================================================
+function drawLatencyBar(canvasId, segments) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  const total = segments.reduce((s, x) => s + x.ms, 0);
+  const scale = (W - 100) / Math.max(total, 1500);
+  let x = 10;
+
+  segments.forEach((seg, i) => {
+    const w = seg.ms * scale;
+    const colors = ['#58a6ff', '#1f6feb', '#388bfd', '#d2a8ff', '#a371f7', '#56d364'];
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(x, H * 0.2, w, H * 0.6);
+    ctx.fillStyle = 'white';
+    ctx.font = '11px monospace';
+    ctx.fillText(seg.name, x + 4, H * 0.5);
+    ctx.fillText(seg.ms + 'ms', x + 4, H * 0.7);
+    x += w;
+  });
+
+  // 总数
+  ctx.fillStyle = '#f0883e';
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText('Total: ' + total + 'ms', W - 150, 25);
+}
+
+drawLatencyBar('latencyCurrent', [
+  { name: 'VAD', ms: 100 },
+  { name: 'Audio', ms: 200 },
+  { name: 'ASR', ms: 300 },
+  { name: 'LLM', ms: 500 },
+  { name: 'TTS', ms: 200 },
+  { name: 'AC', ms: 10 },
+]);
+
+drawLatencyBar('latencyOptimized', [
+  { name: 'VAD', ms: 32 },
+  { name: 'Audio', ms: 0 },
+  { name: 'ASR', ms: 200 },
+  { name: 'LLM', ms: 200 },
+  { name: 'TTS', ms: 100 },
+  { name: 'AC', ms: 10 },
+]);
+
+// ============================================================
+// Demo 6: Barge-in state machine
+// ============================================================
+const bargeinState = document.getElementById('bargeinState');
+bargeinState.textContent = `
+状态变量:
+  status: idle | listening | thinking | speaking
+  responseId: 1 (开始)
+  pendingChunks: []
+
+时间线:
+  T=0.0s  status=idle, responseId=1, pendingChunks=[]
+  T=0.5s  玩家说"攻击怪物" → status=listening
+  T=1.0s  ASR final: "攻击怪物" → status=thinking
+  T=1.2s  LLM 派发: "怪物反击" 任务 (responseId=1)
+  T=2.0s  怪物正在反击 (status=speaking, scheduled)
+  T=2.5s  ⚠️ 玩家说"取消" → 应该打断, responseId=2
+`;
+
+function simulateBargein() {
+  document.getElementById('bargeinResult').innerHTML = `
+    <h3>正常情况下的执行轨迹:</h3>
+    <pre style="color: #56d364">
+T=0.0s  state: {status: idle, responseId: 1, pendingChunks: []}
+T=0.5s  action: UserSpeakStart
+        state: {status: listening, responseId: 1, pendingChunks: []}
+T=1.0s  action: ASRFinal("攻击怪物")
+        state: {status: thinking, responseId: 1, pendingChunks: []}
+T=1.2s  action: LLMDispatch("怪物反击", responseId=1)
+        state: {status: speaking, responseId: 1, pendingChunks: [chunk_1, chunk_2, chunk_3]}
+T=2.0s  action: TTSProcessChunk
+        state: {status: speaking, responseId: 1, pendingChunks: [chunk_2, chunk_3]}
+T=2.5s  action: UserSpeakStart (打断!)
+        state: {status: listening, responseId: 2, pendingChunks: []}
+T=2.6s  action: TTSProcessChunk ← 灾难! 处理了 responseId=1 的 chunk
+
+❌ BUG: 状态机没检查 chunk.responseId, 导致"老内容污染新对话"
+    </pre>
+  `;
+}
+
+function showBargeinBug() {
+  document.getElementById('bargeinResult').innerHTML = `
+    <h3>🐛 TLA+ 找到的 bug (来自 MEMORY.md 已知问题)</h3>
+    <pre style="color: #f85149">
+TLA+ Spec (BargeIn.tla):
+
+  Action LLMTokenArrives ==
+    /\\ status = "thinking"
+    /\\ pendingChunks' = Append(pendingChunks,
+                                [id |-> Len(pendingChunks)+1,
+                                 responseId |-> responseId])
+    /\\ UNCHANGED <<status, responseId, llmStream, ttsStream>>
+
+  Action TTSProcessChunk ==
+    /\\ Len(pendingChunks) > 0
+    /\\ pendingChunks' = Tail(pendingChunks)
+    *BUG* /\\ UNCHANGED <<status, responseId, ...>>
+           *没有检查 chunk 的 responseId 是否过期*
+
+Invariant: NoStaleChunk ==
+  \\A i \\in 1..Len(pendingChunks):
+    pendingChunks[i].responseId = responseId
+
+TLC 输出:
+  "Error: Invariant NoStaleChunk is violated"
+  Trace: state_5 → state_6 (after UserSpeakStart + TTSProcessChunk)
+
+修复: TTSProcessChunk 必须检查
+  pendingChunks[1].responseId = responseId
+  否则不处理 (丢弃过期 chunk)
+    </pre>
+    <p><strong>💡 这就是为什么 TLA+ 值得用</strong>: 普通测试 99.9% 概率不会触发这个特定交错序列, TLA+ 数学证明"在所有可能的交错下, NoStaleChunk 都成立"。</p>
+  `;
+}
+
+</script>
+</body>
+</html>

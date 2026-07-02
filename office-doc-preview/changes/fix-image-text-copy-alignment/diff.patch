@@ -1,0 +1,865 @@
+diff --git a/.claude/worktrees/wf_24d7ff97-b6a-1 b/.claude/worktrees/wf_24d7ff97-b6a-1
+--- a/.claude/worktrees/wf_24d7ff97-b6a-1
++++ b/.claude/worktrees/wf_24d7ff97-b6a-1
+@@ -1 +1 @@
+-Subproject commit 85448c1694669646eb9bafd9a615fca1a69c6dea
++Subproject commit 85448c1694669646eb9bafd9a615fca1a69c6dea-dirty
+diff --git a/.claude/worktrees/wf_24d7ff97-b6a-2 b/.claude/worktrees/wf_24d7ff97-b6a-2
+--- a/.claude/worktrees/wf_24d7ff97-b6a-2
++++ b/.claude/worktrees/wf_24d7ff97-b6a-2
+@@ -1 +1 @@
+-Subproject commit 85448c1694669646eb9bafd9a615fca1a69c6dea
++Subproject commit 85448c1694669646eb9bafd9a615fca1a69c6dea-dirty
+diff --git a/office-preview-app/server/src/converter.mjs b/office-preview-app/server/src/converter.mjs
+index 4ab9ab6..ad0dfda 100644
+--- a/office-preview-app/server/src/converter.mjs
++++ b/office-preview-app/server/src/converter.mjs
+@@ -372,12 +372,15 @@ async function runConvert(task, srcPath) {
+   const durationMs = Date.now() - startAt
+   const srcBytesPerSec = durationMs > 0 ? Math.round(task.size / (durationMs / 1000)) : 0
+ 
+-  // 取缩略图尺寸（用于前端骨架定位）
++  // 缩略图尺寸仍单独取（用于前端骨架定位）
+   let thumbDims = { width: 0, height: 0 }
+   try {
+     if (thumbRelPath) thumbDims = await imageDimensions(thumbRelPath)
+   } catch {}
+ 
++  // 关键：用每页栅格化 PNG 的真实像素尺寸（width/height from rasterizeAllPages），
++  // 不是 thumbDims —— 否则前端容器被压成缩略图大小（96 DPI ≈ 300×424），
++  // 而文字层 bbox 坐标系是 120 DPI ≈ 1000×1414，必然严重错位。
+   const publicPages = pages.map(p => {
+     const text = textByPage.get(p.page)
+     return {
+@@ -386,8 +389,8 @@ async function runConvert(task, srcPath) {
+       textUrl: text ? `/api/files/${task.id}?as=text&n=${p.page}` : undefined,
+       textWords: text?.words || 0,
+       bytes: fileSizeOf(p.file),
+-      width: thumbDims.width || 0,
+-      height: thumbDims.height || 0
++      width: p.width || thumbDims.width || 0,
++      height: p.height || thumbDims.height || 0
+     }
+   })
+ 
+diff --git a/office-preview-app/server/src/pdf-rasterize.mjs b/office-preview-app/server/src/pdf-rasterize.mjs
+index 799818d..7d5dcf9 100644
+--- a/office-preview-app/server/src/pdf-rasterize.mjs
++++ b/office-preview-app/server/src/pdf-rasterize.mjs
+@@ -66,7 +66,9 @@ export async function rasterizeThumb(filePath, outPath, dpi = CONFIG.RASTERIZE_T
+ 
+ /** 渲染全部页为 PNG。支持并发（分桶）。
+  *  onProgress(done) 每完成一页调用一次（累加）。
+- *  返回 [{ page, file }, ...] 数组。
++ *  返回 [{ page, file, width, height }, ...] 数组。
++ *  width/height 从 PNG IHDR 头读取（24 字节 IO，可忽略），
++ *  必须与同 DPI 下 extractTextLayer 的 bbox 坐标系一致 —— 否则文字层与图片错位。
+  */
+ export async function rasterizeAllPages(filePath, outDir, prefix, dpi = CONFIG.RASTERIZE_PAGE_DPI, parallel = CONFIG.RASTERIZE_PAGE_PARALLEL, onProgress) {
+   fs.mkdirSync(outDir, { recursive: true })
+@@ -89,7 +91,14 @@ export async function rasterizeAllPages(filePath, outDir, prefix, dpi = CONFIG.R
+     for (const f of files) {
+       const dest = path.join(outDir, path.basename(f.file))
+       fs.renameSync(f.file, dest)
+-      allFiles.push({ page: f.page, file: dest })
++      // 读 PNG IHDR 拿真实像素尺寸 —— 这是 text layer bbox 坐标的同一坐标系
++      const dims = await imageDimensions(dest)
++      allFiles.push({
++        page: f.page,
++        file: dest,
++        width: dims.width,
++        height: dims.height
++      })
+       done += 1
+       if (onProgress) onProgress(done)
+     }
+@@ -144,16 +153,19 @@ function escapeHtml(s) {
+ }
+ 
+ /**
+- * 把 pdftotext -bbox-layout XHTML 转为按"行"分组的 HTML：
+- *   - 每个 <line> 对应一个 <p>（覆盖整行 bbox）
+- *   - 行内每个 <word> 作绝对定位 <span>（display: inline-block）
++ * 把 pdftotext -bbox-layout XHTML 转为覆盖层 HTML：
++ *   - 每个 <word> 直接作为 position:absolute 的 <span>，坐标是页面像素空间下的绝对位置
++ *   - 不再用 <p> flex 容器（flex align-items 会"二次计算" span 位置，导致选择框漂移）
+  *   - 跳过单字符分隔符（|、-、·、• 等宽度 < 12px 的），消除蓝色"幽灵"选择框
+- * 视觉文字与选择边界完全对齐（Notion/Linear 同款做法）。
++ * 视觉文字与选择边界完全对齐（PDF.js 同款做法）。
+  *
+  * 【关键校正】pdftotext 给的 bbox 是字体 em-square（含 ascender/descender），不是实际 ink。
+  * CJK 文字的 ink 集中在 bbox 的底部 70%（ascender 大但空），英文 ~75%。
+  * 实测 (120dpi 下)：郭亚平 bbox 41-109px (h=68)，实际 ink 75-103px (h=29)。
+  * 这里把 yMin 往下推 25% 高度（em_top + 0.25×h），yMax 保留，让 span 覆盖实际 ink 范围。
++ *
++ * 输出根 div 带 data-page-w / data-page-h 属性 —— 前端以此作为权威页尺寸，
++ * 不依赖 API 返回的 width/height（兼容老任务 / OnlyOffice 重传等脏数据场景）。
+  */
+ export function bboxHtmlToTextLayer(bboxHtml, renderDpi = 120) {
+   if (!bboxHtml || typeof bboxHtml !== 'string') return ''
+@@ -163,60 +175,41 @@ export function bboxHtmlToTextLayer(bboxHtml, renderDpi = 120) {
+   const pageW = pageMatch ? (Number(pageMatch[1]) * scale).toFixed(2) : null
+   const pageH = pageMatch ? (Number(pageMatch[2]) * scale).toFixed(2) : null
+ 
+-  const lines = []
+-  const lineRe = /<line\s+xMin="([\d.]+)"\s+yMin="([\d.]+)"\s+xMax="([\d.]+)"\s+yMax="([\d.]+)">([\s\S]*?)<\/line>/g
+-  let lm
+-  while ((lm = lineRe.exec(bboxHtml)) !== null) {
+-    const lxMin = Number(lm[1]) * scale
+-    const lyMin = Number(lm[2]) * scale
+-    const lxMax = Number(lm[3]) * scale
+-    const lyMax = Number(lm[4]) * scale
+-    if (lxMax - lxMin < 1 || lyMax - lyMin < 1) continue
+-    const lhRaw = lyMax - lyMin
+-    // 校正行级 yMin：把行高顶部 25% 砍掉（pdftotext 包含了 ascender 空区）
+-    const lyMinInk = lyMin + lhRaw * 0.25
+-    const lyMaxInk = lyMax
+-    const inner = lm[5]
+-    const spans = []
+-    const wordRe = /<word\s+xMin="([\d.]+)"\s+yMin="([\d.]+)"\s+xMax="([\d.]+)"\s+yMax="([\d.]+)">([\s\S]*?)<\/word>/g
+-    let wm
+-    while ((wm = wordRe.exec(inner)) !== null) {
+-      const xMin = Number(wm[1]) * scale
+-      const yMin = Number(wm[2]) * scale
+-      const xMax = Number(wm[3]) * scale
+-      const yMax = Number(wm[4]) * scale
+-      const rawText = wm[5]
+-      if (xMax - xMin < 0.5 || yMax - yMin < 0.5) continue
+-      const decoded = rawText
+-        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+-        .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+-      const trimmed = decoded.trim()
+-      if (!trimmed) continue
+-      // 跳过单字符分隔符
+-      const w = xMax - xMin
+-      const isSep = trimmed.length === 1 && /[|\-—·•●\\/]/.test(trimmed) && w < 12
+-      if (isSep) continue
+-      const left = (xMin - lxMin).toFixed(2)
+-      const rawH = yMax - yMin
+-      // 单词级 yMin 也应用 0.25 顶部校正
+-      const inkH = rawH * 0.75
+-      const width = (xMax - xMin).toFixed(2)
+-      const height = inkH.toFixed(2)
+-      // top 偏移到 ink top（相对父 <p>）
+-      const inkTopInWord = (yMin - lyMin) + rawH * 0.25
+-      spans.push(
+-        `<span style="display:inline-block;margin-left:${left}px;margin-top:${inkTopInWord.toFixed(2)}px;width:${width}px;height:${height}px;font-size:${height}px;line-height:1;white-space:nowrap;overflow:hidden">${escapeHtml(decoded)}</span>`
+-      )
+-    }
+-    if (!spans.length) continue
+-    const lineW = (lxMax - lxMin).toFixed(2)
+-    const lineH = (lyMaxInk - lyMinInk).toFixed(2)
+-    lines.push(
+-      `<p style="position:absolute;left:${lxMin.toFixed(2)}px;top:${lyMinInk.toFixed(2)}px;width:${lineW}px;height:${lineH}px;margin:0;display:flex;align-items:flex-end;white-space:nowrap;overflow:hidden">${spans.join('')}</p>`
++  const spans = []
++  const wordRe = /<word\s+xMin="([\d.]+)"\s+yMin="([\d.]+)"\s+xMax="([\d.]+)"\s+yMax="([\d.]+)">([\s\S]*?)<\/word>/g
++  let wm
++  while ((wm = wordRe.exec(bboxHtml)) !== null) {
++    const xMin = Number(wm[1]) * scale
++    const yMin = Number(wm[2]) * scale
++    const xMax = Number(wm[3]) * scale
++    const yMax = Number(wm[4]) * scale
++    const rawText = wm[5]
++    if (xMax - xMin < 0.5 || yMax - yMin < 0.5) continue
++    const decoded = rawText
++      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
++      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
++    const trimmed = decoded.trim()
++    if (!trimmed) continue
++    // 仅过滤「极窄的横向分隔符」，避免幽灵选择框
++    // 子弹字符 ●/• 不再过滤 —— 简历里 ● 是正文内容，应可选中
++    const w = xMax - xMin
++    const isSep = trimmed.length === 1 && /[|\-—·\\/]/.test(trimmed) && w < 8
++    if (isSep) continue
++    const rawH = yMax - yMin
++    // yMin 应用 25% ascender 校正 → 让 span 覆盖实际 ink 范围
++    const inkTop = yMin + rawH * 0.25
++    // 【兜底】pdftotext 对某些中文长句（无空格分隔的连续 CJK）会返回极薄 bbox（如 yMax-yMin=2-3px），
++    // 导致 inkH * 0.75 后只剩 ~2px，肉眼/鼠标都无法选中。
++    // 这里强制下限 16px（约 12pt CJK 字符高度），保证选区框覆盖实际文字 ink 区域。
++    const inkH = Math.max(rawH * 0.75, 16)
++    const width = (xMax - xMin).toFixed(2)
++    const height = inkH.toFixed(2)
++    spans.push(
++      `<span style="position:absolute;left:${xMin.toFixed(2)}px;top:${inkTop.toFixed(2)}px;width:${width}px;height:${height}px;font-size:${height}px;line-height:1;white-space:nowrap;overflow:hidden">${escapeHtml(decoded)}</span>`
+     )
+   }
+   const meta = (pageW && pageH) ? ` data-page-w="${pageW}" data-page-h="${pageH}"` : ''
+-  return `<div class="pdf-text-layer"${meta}>${lines.join('')}</div>`
++  return `<div class="pdf-text-layer"${meta}>${spans.join('')}</div>`
+ }
+ 
+ /** 提取单页文字层 */
+@@ -240,7 +233,8 @@ export function extractTextLayer(pdfPath, page, outPath, opts = {}) {
+       }
+       const layerHtml = bboxHtmlToTextLayer(out, renderDpi)
+       fs.writeFileSync(outPath, layerHtml, 'utf-8')
+-      const words = (layerHtml.match(/<p /g) || []).length
++      // 计数：每词一个绝对定位 span（已过滤空宽/分隔符）
++      const words = (layerHtml.match(/<span /g) || []).length
+       const bytes = Buffer.byteLength(layerHtml, 'utf-8')
+       resolve({ page, file: outPath, words, bytes })
+     })
+diff --git a/office-preview-app/server/src/router.mjs b/office-preview-app/server/src/router.mjs
+index 465ce60..24622c1 100644
+--- a/office-preview-app/server/src/router.mjs
++++ b/office-preview-app/server/src/router.mjs
+@@ -7,6 +7,7 @@ import { listTasks, getTask, upsertTask, updateTask, loadTasks } from './store.m
+ import { parseMultipart, readBody } from './multipart.mjs'
+ import { enqueueConvert } from './converter.mjs'
+ import { ensureLinearized } from './pdf-optimize.mjs'
++import { extractTextLayer } from './pdf-rasterize.mjs'
+ 
+ function sendJSON(res, code, data) {
+   res.setHeader('Access-Control-Allow-Origin', '*')
+@@ -206,6 +207,28 @@ export async function route(req, res) {
+   if (pathname === '/api/tasks' && req.method === 'GET') {
+     const safe = listTasks().map(t => {
+       const { originalPath, previewPath, thumbPath, pagesDir, ...rest } = t
++      // 兜底：用 text-layer data-page-w/h 作为权威尺寸（兼容老脏数据，API 返回了 thumb 尺寸）
++      if (Array.isArray(rest.pages) && rest.pages.length && rest.textDir) {
++        for (const p of rest.pages) {
++          try {
++            const pad3 = String(p.page).padStart(3, '0')
++            const txtPath = path.join(rest.textDir, `page-${pad3}.html`)
++            if (!fs.existsSync(txtPath)) continue
++            const html = fs.readFileSync(txtPath, 'utf-8')
++            const wm = html.match(/data-page-w="([\d.]+)"/)
++            const hm = html.match(/data-page-h="([\d.]+)"/)
++            if (wm && hm) {
++              const tw = parseFloat(wm[1])
++              const th = parseFloat(hm[1])
++              // 若 API 维度与 text-layer 维度不一致（典型：thumb 96 DPI vs 栅格 120 DPI），以 text-layer 为准
++              if (Math.abs((p.width || 0) - tw) > 1 || Math.abs((p.height || 0) - th) > 1) {
++                p.width = tw
++                p.height = th
++              }
++            }
++          } catch {}
++        }
++      }
+       return rest
+     })
+     return sendJSON(res, 200, { tasks: safe })
+@@ -266,12 +289,30 @@ export async function route(req, res) {
+         path.join(task.textDir, `page-${pad2}.html`),
+         path.join(task.textDir, `page-${n}.html`)
+       ]
+-      const filePath = candidates.find(p => fs.existsSync(p))
++      let filePath = candidates.find(p => fs.existsSync(p))
+       const safe = filePath && path.resolve(filePath).startsWith(path.resolve(task.textDir) + path.sep) ? filePath : null
+       if (!safe) return sendJSON(res, 404, { error: `text ${n} not found` })
+-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
++
++      // 【自动重生】检测到旧版结构或过薄 inkH → 用新代码按需重生
++      // 1. 旧结构：含 <p style="position:absolute...display:flex"> 行容器
++      // 2. 异常薄高：所有 span 高度都 < 5px（pdftotext 对长中文句的 bbox bug，旧代码无 16px 下限兜底）
++      let html = fs.readFileSync(safe, 'utf-8')
++      const isOldFormat = /<p\s+style="[^"]*display:flex[^"]*align-items:\s*flex-end/i.test(html)
++      const heights = [...html.matchAll(/height:\s*([\d.]+)px/g)].map(m => parseFloat(m[1]))
++      const hasThinWord = heights.some(h => h < 5)
++      if ((isOldFormat || hasThinWord) && task.previewPath && fs.existsSync(task.previewPath)) {
++        try {
++          const reason = isOldFormat ? 'old flex <p>' : 'thin inkH word'
++          const result = await extractTextLayer(task.previewPath, n, safe, { renderDpi: CONFIG.RASTERIZE_PAGE_DPI })
++          html = fs.readFileSync(safe, 'utf-8')
++          console.log(`[text-layer] regenerated ${id}#${n} → ${result.words} words (reason: ${reason})`)
++        } catch (e) {
++          console.warn(`[text-layer] regenerate failed for ${id}#${n}: ${e.message}`)
++        }
++      }
++
++      res.setHeader('Cache-Control', 'no-cache, must-revalidate')
+       res.setHeader('Content-Type', 'text/html; charset=utf-8')
+-      const html = fs.readFileSync(safe, 'utf-8')
+       res.writeHead(200, { 'Content-Length': Buffer.byteLength(html) })
+       res.end(html)
+       return
+diff --git a/office-preview-app/server/test/pdf-rasterize.test.mjs b/office-preview-app/server/test/pdf-rasterize.test.mjs
+index 82b90ef..37fafea 100644
+--- a/office-preview-app/server/test/pdf-rasterize.test.mjs
++++ b/office-preview-app/server/test/pdf-rasterize.test.mjs
+@@ -24,7 +24,7 @@ afterAll(() => {
+ })
+ 
+ describe('bboxHtmlToTextLayer', () => {
+-  it('解析 pdftotext bbox 输出 → HTML 片段（按行分组）', async () => {
++  it('解析 pdftotext bbox 输出 → HTML 片段（每词绝对定位 span）', async () => {
+     const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const sample = `<?xml version="1.0"?>
+ <page width="612.000000" height="792.000000">
+@@ -37,15 +37,14 @@ describe('bboxHtmlToTextLayer', () => {
+ </page>`
+     const out = bboxHtmlToTextLayer(sample, 96)
+     expect(out).toContain('class="pdf-text-layer"')
+-    // 1 行 → 1 个 <p>
+-    expect((out.match(/<p /g) || []).length).toBe(1)
+-    // 单词 → 2 个 <span>
++    // 新结构：每个 word 一个 span，无 <p> 行容器
+     expect((out.match(/<span /g) || []).length).toBe(2)
+-    // 文字内容（单词）
++    expect((out.match(/<p /g) || []).length).toBe(0)
++    // 文字内容
+     expect(out).toContain('Hello')
+     expect(out).toContain('World')
+-    // 行级 p 的位置：lxMin=100pt*1.333=133.33px
+-    // lyMin 应用 0.25 ascender 校正：(700 + 12*0.25) * 1.333 = 937.33px
++    // 第一个词位置：xMin=100pt*1.333=133.33px
++    // yMin=700pt + 12*0.25=703pt * 1.333 ≈ 937.33px
+     expect(out).toContain('left:133.33px')
+     expect(out).toContain('top:937.33px')
+   })
+@@ -55,9 +54,9 @@ describe('bboxHtmlToTextLayer', () => {
+     const sample = `<page width="612" height="792"><block><line xMin="100" yMin="100" xMax="200" yMax="112"><word xMin="100" yMin="100" xMax="200" yMax="112">X</word></line></block></page>`
+     const out96 = bboxHtmlToTextLayer(sample, 96)
+     const out120 = bboxHtmlToTextLayer(sample, 120)
+-    // 96dpi: 行 left = 100 * (96/72) = 133.33
++    // 96dpi: left = 100 * (96/72) = 133.33
+     expect(out96).toContain('left:133.33px')
+-    // 120dpi: 行 left = 100 * (96/72) * (120/96) = 166.67
++    // 120dpi: left = 100 * (96/72) * (120/96) = 166.67
+     expect(out120).toContain('left:166.67px')
+   })
+ 
+@@ -72,19 +71,18 @@ describe('bboxHtmlToTextLayer', () => {
+     const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const sample = `<page width="612" height="792"><block><line xMin="100" yMin="100" xMax="200" yMax="112"><word xMin="100" yMin="100" xMax="200" yMax="112">R&amp;D</word></line></block></page>`
+     const out = bboxHtmlToTextLayer(sample, 96)
+-    // 解码后应该是 R&D，重新 escape 成 R&amp;D 写到 HTML 中（避免双转义）
+     expect(out).toContain('R&amp;D')
+     expect(out).not.toContain('R&amp;amp;D')
+   })
+ 
+-  it('零宽词跳过（不产生空 <p>）', async () => {
++  it('零宽词跳过（不产生空 span）', async () => {
+     const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const sample = `<page width="612" height="792"><block><line xMin="100" yMin="100" xMax="100" yMax="112"><word xMin="100" yMin="100" xMax="100" yMax="112">X</word></line></block></page>`
+     const out = bboxHtmlToTextLayer(sample, 96)
+-    expect((out.match(/<p /g) || []).length).toBe(0)
++    expect((out.match(/<span /g) || []).length).toBe(0)
+   })
+ 
+-  it('单字符分隔符（|、-、· 等宽度 < 12px）跳过，避免幽灵选择框', async () => {
++  it('单字符分隔符（|、-、· 等宽度 < 8px）跳过，避免幽灵选择框', async () => {
+     const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const sample = `<page width="612" height="792"><block>
+       <line xMin="100" yMin="100" xMax="300" yMax="112">
+@@ -95,21 +93,95 @@ describe('bboxHtmlToTextLayer', () => {
+         <word xMin="215" yMin="100" xMax="250" yMax="112">164cm</word>
+       </line></block></page>`
+     const out = bboxHtmlToTextLayer(sample, 96)
+-    // 不应出现孤立的 | span
+     expect(out).not.toMatch(/<span[^>]*">\|<\/span>/)
+-    // 但实际词保留
+     expect(out).toContain('前端工程师')
+     expect(out).toContain('1993')
+     expect(out).toContain('164cm')
+   })
+ 
+-  it('page 尺寸写入 data 属性', async () => {
++  it('子弹字符 ●/• 即使是单字符也保留（简历正文内容，必须可选中）', async () => {
++    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
++    const sample = `<page width="612" height="792"><block>
++      <line xMin="100" yMin="100" xMax="200" yMax="120">
++        <word xMin="100" yMin="100" xMax="110" yMax="120">●</word>
++        <word xMin="115" yMin="100" xMax="200" yMax="120">前端工程师</word>
++      </line>
++      <line xMin="100" yMin="130" xMax="200" yMax="150">
++        <word xMin="100" yMin="130" xMax="108" yMax="150">•</word>
++        <word xMin="115" yMin="130" xMax="200" yMax="150">React 专家</word>
++      </line>
++    </block></page>`
++    const out = bboxHtmlToTextLayer(sample, 96)
++    // 子弹字符必须出现在 span 中
++    expect(out).toMatch(/<span[^>]*>●<\/span>/)
++    expect(out).toMatch(/<span[^>]*>•<\/span>/)
++    expect(out).toContain('前端工程师')
++    expect(out).toContain('React 专家')
++  })
++
++  it('page 尺寸写入 data 属性（前端权威兜底源）', async () => {
+     const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const sample = `<page width="612.000000" height="792.000000"><block><line xMin="100" yMin="100" xMax="200" yMax="112"><word xMin="100" yMin="100" xMax="200" yMax="112">X</word></line></block></page>`
+     const out = bboxHtmlToTextLayer(sample, 96)
+     expect(out).toContain('data-page-w="816.00"')
+     expect(out).toContain('data-page-h="1056.00"')
+   })
++
++  it('每词都是 position:absolute（无 flex 行容器干扰）', async () => {
++    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
++    const sample = `<page width="612" height="792"><block>
++      <line xMin="100" yMin="100" xMax="300" yMax="112">
++        <word xMin="100" yMin="100" xMax="150" yMax="112">前端</word>
++        <word xMin="155" yMin="100" xMax="250" yMax="112">工程师</word>
++      </line>
++    </block></page>`
++    const out = bboxHtmlToTextLayer(sample, 96)
++    // 每个 span 都用 position:absolute 定位
++    const spans = out.match(/<span [^>]*>/g) || []
++    expect(spans.length).toBe(2)
++    for (const s of spans) {
++      expect(s).toContain('position:absolute')
++      expect(s).toMatch(/left:[\d.]+px/)
++      expect(s).toMatch(/top:[\d.]+px/)
++      expect(s).toMatch(/width:[\d.]+px/)
++      expect(s).toMatch(/height:[\d.]+px/)
++    }
++    // 第二个词的 left = 155*1.333 = 206.67
++    expect(out).toContain('left:206.67px')
++  })
++
++  it('ascender 校正：top = yMin + 25% rawH', async () => {
++    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
++    // 词高 40pt, yMin=100pt → inkTop = 100 + 40*0.25 = 110pt → 110*1.333=146.67px
++    const sample = `<page width="612" height="792"><block>
++      <line xMin="100" yMin="100" xMax="200" yMax="140">
++        <word xMin="100" yMin="100" xMax="200" yMax="140">X</word>
++      </line>
++    </block></page>`
++    const out = bboxHtmlToTextLayer(sample, 96)
++    expect(out).toContain('top:146.67px')
++    // inkH = 40*0.75 = 30pt → 30*1.333=40px
++    expect(out).toContain('height:40.00px')
++  })
++
++  it('pdftotext 返回极薄 bbox（rawH<2px）时，inkH 强制下限 16px 保证可选中', async () => {
++    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
++    // 模拟 pdftotext 对长中文句给出极薄 bbox 的情况（yMax - yMin 只有 2px）
++    const sample = `<page width="612" height="792"><block>
++      <line xMin="100" yMin="500" xMax="500" yMax="502">
++        <word xMin="100" yMin="500" xMax="500" yMax="502">职责：AI方向应用探索：图搜地点，行中景点博客生成及语音讲解项目落地等</word>
++      </line>
++    </block></page>`
++    const out = bboxHtmlToTextLayer(sample, 120)
++    // 抽取 span height
++    const m = out.match(/height:([\d.]+)px/)
++    expect(m).toBeTruthy()
++    const h = parseFloat(m[1])
++    // 16px 是渲染像素空间的下限（不参与 scale）
++    expect(h).toBeGreaterThanOrEqual(16)
++    // top 也应该是 yMin 附近（yMin=500pt → 500*1.667=833.33px），加上 ascender 校正后 +0.25*2pt*1.667=+0.83
++    expect(out).toContain('top:834.17px')
++  })
+ })
+ 
+ describe('extractTextLayer', () => {
+@@ -123,10 +195,10 @@ describe('extractTextLayer', () => {
+     expect(fs.existsSync(outPath)).toBe(true)
+     const html = fs.readFileSync(outPath, 'utf-8')
+     expect(html).toContain('class="pdf-text-layer"')
+-    // 行级 <p>（行容器，position:absolute）
+-    expect(html).toMatch(/<p style="position:absolute/)
+-    // 行内单词 <span>（display:inline-block）
+-    expect(html).toMatch(/<span style="display:inline-block/)
++    // 新结构：每个 word 一个绝对定位 span
++    expect(html).toMatch(/<span style="position:absolute/)
++    // 不再有 <p> 行容器
++    expect(html).not.toMatch(/<p /)
+   })
+ 
+   it('不存在的 PDF 文件抛错', async () => {
+@@ -147,6 +219,38 @@ describe('extractTextLayer', () => {
+   })
+ })
+ 
++describe('rasterizeAllPages - 每页真实像素尺寸', () => {
++  it('返回 {page,file,width,height}，width/height 与 PNG 实际像素一致', async () => {
++    const { rasterizeAllPages, imageDimensions } = await import('../src/pdf-rasterize.mjs')
++    const outDir = path.join(TMP_ROOT, 'raster-dims')
++    // 用 120 DPI 渲染（与生产一致），fixture PDF 是 Letter (612x792 pt)
++    // 期望：120/72 = 5/3 倍 → width=1020, height=1320
++    const results = await rasterizeAllPages(FIXTURE_PDF, outDir, 'page', 120, 1)
++    expect(results.length).toBe(3)
++    for (const r of results) {
++      expect(r).toHaveProperty('width')
++      expect(r).toHaveProperty('height')
++      expect(r.width).toBeGreaterThan(0)
++      expect(r.height).toBeGreaterThan(0)
++      // 交叉验证：直接读 PNG 头
++      const dims = await imageDimensions(r.file)
++      expect(r.width).toBe(dims.width)
++      expect(r.height).toBe(dims.height)
++    }
++    // Letter @ 120 DPI 精确值
++    expect(results[0].width).toBe(1020)
++    expect(results[0].height).toBe(1320)
++  })
++
++  it('DPI 不一致时 width/height 随之缩放（96 DPI → 816x1056）', async () => {
++    const { rasterizeAllPages } = await import('../src/pdf-rasterize.mjs')
++    const outDir = path.join(TMP_ROOT, 'raster-dims-96')
++    const results = await rasterizeAllPages(FIXTURE_PDF, outDir, 'page', 96, 1)
++    expect(results[0].width).toBe(816)
++    expect(results[0].height).toBe(1056)
++  })
++})
++
+ describe('extractAllTextLayers', () => {
+   it('并行模式产物完整（每页都有 HTML）', async () => {
+     const { extractAllTextLayers } = await import('../src/pdf-rasterize.mjs')
+diff --git a/office-preview-app/web/src/previewers/PdfImagesPreview.tsx b/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
+index dd8e1a5..5145fc5 100644
+--- a/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
++++ b/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
+@@ -4,6 +4,8 @@
+ //   - <div class="pdf-text-layer"> 用 dangerouslySetInnerHTML 注入服务端 bbox HTML，
+ //     文字本身透明（color: transparent），但可选中、可复制、可搜索（user-select: text）
+ //   - 文字层懒加载：图片进入视口后才 fetch text URL，避免阻塞首屏
++//   - 文字层根 div 带 data-page-w/h 属性 → 前端以此作为权威页尺寸兜底（兼容老 API 脏数据）
++//   - 每页 wrapper 严格按栅格化 PNG 像素尺寸布局，与文字层 bbox 坐标系 1:1 对齐
+ //   - 保留 IntersectionObserver 虚拟滚动、buffer、计数
+ // 模型：Claude MiniMax-M3（MiniMax）
+ import { useEffect, useRef, useState } from 'react'
+@@ -16,14 +18,27 @@ interface Props {
+ 
+ const BUFFER_PAGES = 2
+ // 文字层缓存：避免重复 fetch 同页 HTML
+-const textCache = new Map<number, string>()
++// 缓存 value 包含 { html, pageW?, pageH? } —— pageW/pageH 从 data-page-w/h 解析出来
++interface CachedTextLayer {
++  html: string
++  pageW?: number
++  pageH?: number
++}
++const textCache = new Map<number, CachedTextLayer>()
++
++/** 从文字层 HTML 根 div 提取 data-page-w / data-page-h（权威页尺寸） */
++function parseTextLayerDims(html: string): { pageW?: number; pageH?: number } {
++  const m = html.match(/data-page-w="([\d.]+)"\s+data-page-h="([\d.]+)"/)
++  if (!m) return {}
++  return { pageW: parseFloat(m[1]), pageH: parseFloat(m[2]) }
++}
+ 
+ export function PdfImagesPreview({ task }: Props) {
+   const pages: PageImage[] = task.pages || []
+   const containerRef = useRef<HTMLDivElement>(null)
+   const [current, setCurrent] = useState(1)
+   const [visibleSet, setVisibleSet] = useState<Set<number>>(() => new Set(pages.map(p => p.page)))
+-  const [textLayers, setTextLayers] = useState<Map<number, string>>(() => new Map())
++  const [textLayers, setTextLayers] = useState<Map<number, CachedTextLayer>>(() => new Map())
+ 
+   // 性能面板：把当前渲染过的页数同步过去
+   useEffect(() => {
+@@ -59,10 +74,12 @@ export function PdfImagesPreview({ task }: Props) {
+           if (!r.ok) continue
+           const html = await r.text()
+           if (cancelled) return
+-          textCache.set(pageNum, html)
++          const dims = parseTextLayerDims(html)
++          const cached: CachedTextLayer = { html, ...dims }
++          textCache.set(pageNum, cached)
+           setTextLayers(prev => {
+             const next = new Map(prev)
+-            next.set(pageNum, html)
++            next.set(pageNum, cached)
+             return next
+           })
+         } catch {
+@@ -108,8 +125,18 @@ export function PdfImagesPreview({ task }: Props) {
+     return <div className="center-msg err">无栅格化结果（请切换到 PDF 模式）</div>
+   }
+ 
+-  const firstWidth = pages[0]?.width || 800
+-  const firstHeight = pages[0]?.height || 1130
++  // 关键：每页必须按自身栅格化 PNG 的真实像素尺寸布局。
++  // 优先级：text-layer data-page-w/h（最权威，文字层 bbox 用的就是这套） >
++  //         API 返回的 p.width/height（兜底） > 默认值
++  // 这样即使 API 返回老任务脏数据（thumb 尺寸），wrapper 也能正确缩放。
++  function pageDims(p: PageImage) {
++    const cached = textLayers.get(p.page)
++    if (cached?.pageW && cached?.pageH) {
++      return { w: cached.pageW, h: cached.pageH }
++    }
++    return { w: p.width || 800, h: p.height || 1130 }
++  }
++  const maxPageWidth = pages.reduce((m, p) => Math.max(m, pageDims(p).w), 0) || undefined
+   const textLoadedCount = textLayers.size
+   const textTotalPages = pages.filter(p => p.textUrl).length
+ 
+@@ -124,17 +151,26 @@ export function PdfImagesPreview({ task }: Props) {
+       </div>
+       <div
+         className="pdf-images-frame"
+-        style={{ maxWidth: firstWidth + 'px', aspectRatio: `${firstWidth} / ${firstHeight}` }}
++        style={maxPageWidth ? { maxWidth: maxPageWidth + 'px' } : undefined}
+       >
+         {pages.map(p => {
+           const visible = visibleSet.has(p.page)
+-          const textHtml = textLayers.get(p.page) || ''
++          const cachedLayer = textLayers.get(p.page)
++          const textHtml = cachedLayer?.html || ''
++          const { w, h } = pageDims(p)
+           return (
+             <div
+               key={p.page}
+               className="pdf-image-page"
+               data-page={p.page}
+-              style={{ position: 'relative', width: '100%', marginBottom: 12 }}
++              data-page-w={w}
++              data-page-h={h}
++              style={{
++                position: 'relative',
++                width: w + 'px',
++                height: h + 'px',
++                marginBottom: 12
++              }}
+             >
+               <img
+                 className="pdf-images-page"
+@@ -142,9 +178,9 @@ export function PdfImagesPreview({ task }: Props) {
+                 alt={`第 ${p.page} 页`}
+                 loading="lazy"
+                 decoding="async"
+-                style={{ display: 'block', width: '100%', height: 'auto' }}
++                style={{ display: 'block', width: '100%', height: '100%' }}
+               />
+-              {/* 文字覆盖层：透明但可选可复制 */}
++              {/* 文字覆盖层：透明但可选可复制。坐标系与 wrapper 像素 1:1 对齐 */}
+               {p.textUrl && textHtml && (
+                 <div
+                   className="pdf-text-layer"
+diff --git a/office-preview-app/web/src/styles.css b/office-preview-app/web/src/styles.css
+index 5ed9115..523869c 100644
+--- a/office-preview-app/web/src/styles.css
++++ b/office-preview-app/web/src/styles.css
+@@ -362,7 +362,7 @@ a { color: inherit; text-decoration: none; }
+ 
+ /* 页面图 + 文字覆盖层（透明但可选可复制） */
+ .pdf-image-page { position: relative; margin-bottom: 12px; }
+-.pdf-images-page { background: #fff; box-shadow: 0 4px 16px rgba(15, 23, 42, .12); border-radius: 4px; max-width: 100%; }
++.pdf-images-page { background: #fff; box-shadow: 0 4px 16px rgba(15, 23, 42, .12); border-radius: 4px; max-width: 100%; display: block; }
+ .pdf-text-layer {
+   position: absolute; inset: 0; pointer-events: auto;
+   color: transparent;
+@@ -370,8 +370,12 @@ a { color: inherit; text-decoration: none; }
+   cursor: text;
+   z-index: 1;
+ }
+-.pdf-text-layer p { margin: 0; line-height: 1; white-space: nowrap; overflow: hidden; }
+-.pdf-text-layer p span { user-select: text; }
++/* 文字层子元素全部用绝对定位（与 pdftotext bbox 1:1 对齐，无 flex 二次计算） */
++.pdf-text-layer span {
++  position: absolute;
++  user-select: text;
++  display: block;
++}
+ .pdf-text-layer::selection,
+ .pdf-text-layer *::selection {
+   background: rgba(47, 107, 255, 0.3);
+diff --git a/office-preview-app/web/test/PdfImagesPreview.test.tsx b/office-preview-app/web/test/PdfImagesPreview.test.tsx
+index ba62956..2272358 100644
+--- a/office-preview-app/web/test/PdfImagesPreview.test.tsx
++++ b/office-preview-app/web/test/PdfImagesPreview.test.tsx
+@@ -57,6 +57,203 @@ describe('PdfImagesPreview - 基础渲染', () => {
+   })
+ })
+ 
++describe('PdfImagesPreview - 像素对齐（文字层与图片同坐标系）', () => {
++  it('每页 .pdf-image-page 的宽/高 = 该页 width/height（与栅格化 PNG 像素一致）', () => {
++    const t = {
++      id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [
++        { page: 1, url: '/u1', width: 1020, height: 1320, bytes: 100 },
++        { page: 2, url: '/u2', width: 800,  height: 1100, bytes: 100 },
++        { page: 3, url: '/u3', width: 1200, height: 1600, bytes: 100 }
++      ],
++      pagesTotal: 3
++    } as Task
++    render(<PdfImagesPreview task={t} />)
++    const pageDivs = document.querySelectorAll('.pdf-image-page') as NodeListOf<HTMLElement>
++    expect(pageDivs.length).toBe(3)
++    // 每页 wrapper 必须用页面自身像素尺寸（让文字 bbox 与图片 1:1 对齐）
++    expect((pageDivs[0] as HTMLElement).style.width).toBe('1020px')
++    expect((pageDivs[0] as HTMLElement).style.height).toBe('1320px')
++    expect((pageDivs[1] as HTMLElement).style.width).toBe('800px')
++    expect((pageDivs[1] as HTMLElement).style.height).toBe('1100px')
++    expect((pageDivs[2] as HTMLElement).style.width).toBe('1200px')
++    expect((pageDivs[2] as HTMLElement).style.height).toBe('1600px')
++  })
++
++  it('frame 用最大页宽 maxWidth 容纳所有页（不再用首页 aspectRatio 锁死）', () => {
++    const t = {
++      id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [
++        { page: 1, url: '/u1', width: 1020, height: 1320, bytes: 100 },
++        { page: 2, url: '/u2', width: 1500, height: 2000, bytes: 100 }   // 比首页宽
++      ],
++      pagesTotal: 2
++    } as Task
++    render(<PdfImagesPreview task={t} />)
++    const frame = document.querySelector('.pdf-images-frame') as HTMLElement
++    // frame maxWidth 应为所有页中最大宽度（1500），而非首页宽（1020）
++    expect(frame.style.maxWidth).toBe('1500px')
++    // 不再用首页 aspectRatio 锁死 frame 高宽比（让每页按自身高度布局）
++    expect(frame.style.aspectRatio).toBe('')
++  })
++
++  it('图片在 wrapper 内 100% 填充（width/height: 100%）', () => {
++    const t = {
++      id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [{ page: 1, url: '/u1', width: 1020, height: 1320, bytes: 100 }],
++      pagesTotal: 1
++    } as Task
++    render(<PdfImagesPreview task={t} />)
++    const img = document.querySelector('img.pdf-images-page') as HTMLImageElement
++    expect(img.style.width).toBe('100%')
++    expect(img.style.height).toBe('100%')
++  })
++})
++
++describe('PdfImagesPreview - data-page-w/h 权威尺寸兜底', () => {
++  let originalFetch: any
++
++  beforeEach(async () => {
++    originalFetch = global.fetch
++    // textCache 是模块级 Map，重置模块让每个测试拿到干净的缓存
++    vi.resetModules()
++  })
++  afterEach(() => { global.fetch = originalFetch })
++
++  it('API 返回老脏数据（thumb 尺寸）时，wrapper 仍按 text-layer data-page-w/h 缩放', async () => {
++    // 重导组件以获得干净的 textCache
++    const { PdfImagesPreview: FreshPdfImagesPreview } = await import('../src/previewers/PdfImagesPreview')
++    // 模拟服务端用老 converter.mjs 写入脏数据：width=300, height=424（缩略图尺寸）
++    const t = {
++      id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [{ page: 1, url: '/u1', textUrl: '/u1-text', width: 300, height: 424, bytes: 100 }], // ← 脏数据
++      pagesTotal: 1
++    } as Task
++    // 但 text-layer 自带权威 data-page-w/h（120 DPI = 1020×1320）
++    global.fetch = vi.fn(async () => ({
++      ok: true,
++      text: async () =>
++        '<div class="pdf-text-layer" data-page-w="1020" data-page-h="1320">' +
++        '<span style="position:absolute;left:133.33px;top:937.33px;width:66.67px;height:12.00px">Hello</span>' +
++        '</div>'
++    })) as any
++
++    render(<FreshPdfImagesPreview task={t} />)
++
++    await waitFor(() => {
++      expect(document.querySelector('.pdf-text-layer span')).toBeTruthy()
++    })
++
++    const wrapper = document.querySelector('.pdf-image-page') as HTMLElement
++    // 关键：即使 API 说 300×424，wrapper 也要用 data-page-w/h → 1020×1320
++    expect(wrapper.style.width).toBe('1020px')
++    expect(wrapper.style.height).toBe('1320px')
++    expect(wrapper.getAttribute('data-page-w')).toBe('1020')
++    expect(wrapper.getAttribute('data-page-h')).toBe('1320')
++  })
++
++  it('text-layer 未返回 data-page-w/h 时，wrapper 兜底用 API width/height', async () => {
++    const { PdfImagesPreview: FreshPdfImagesPreview } = await import('../src/previewers/PdfImagesPreview')
++    const t = {
++      id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [{ page: 1, url: '/u1', textUrl: '/u1-text', width: 1020, height: 1320, bytes: 100 }],
++      pagesTotal: 1
++    } as Task
++    // text-layer 不含 data-page-w/h
++    global.fetch = vi.fn(async () => ({
++      ok: true,
++      text: async () => '<div class="pdf-text-layer"><span>X</span></div>'
++    })) as any
++
++    render(<FreshPdfImagesPreview task={t} />)
++
++    await waitFor(() => {
++      expect(document.querySelector('.pdf-text-layer')).toBeTruthy()
++    })
++
++    const wrapper = document.querySelector('.pdf-image-page') as HTMLElement
++    expect(wrapper.style.width).toBe('1020px')
++    expect(wrapper.style.height).toBe('1320px')
++  })
++
++  it('新结构：每词都是 position:absolute 的 span（无 <p> 行容器）', async () => {
++    const { PdfImagesPreview: FreshPdfImagesPreview } = await import('../src/previewers/PdfImagesPreview')
++    const t = {
++      id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [{ page: 1, url: '/u1', textUrl: '/u1-text', width: 1020, height: 1320, bytes: 100 }],
++      pagesTotal: 1
++    } as Task
++    global.fetch = vi.fn(async () => ({
++      ok: true,
++      text: async () =>
++        '<div class="pdf-text-layer" data-page-w="1020" data-page-h="1320">' +
++        '<span style="position:absolute;left:100px;top:200px;width:60px;height:15px">前端</span>' +
++        '<span style="position:absolute;left:165px;top:200px;width:80px;height:15px">工程师</span>' +
++        '</div>'
++    })) as any
++
++    render(<FreshPdfImagesPreview task={t} />)
++
++    await waitFor(() => {
++      const spans = document.querySelectorAll('.pdf-text-layer span')
++      expect(spans.length).toBe(2)
++    })
++
++    const spans = document.querySelectorAll('.pdf-text-layer span')
++    // 没有 <p> 容器
++    expect(document.querySelectorAll('.pdf-text-layer p').length).toBe(0)
++    // 每词 position:absolute（继承自 CSS）
++    for (const s of Array.from(spans) as HTMLElement[]) {
++      // jsdom 不算 CSS，但 inline style 应该保留
++      expect((s as HTMLElement).style.position).toBe('absolute')
++    }
++    // 第一个词的 left/top 来自内联 style
++    expect((spans[0] as HTMLElement).style.left).toBe('100px')
++    expect((spans[0] as HTMLElement).style.top).toBe('200px')
++    expect(spans[0].textContent).toBe('前端')
++    expect(spans[1].textContent).toBe('工程师')
++  })
++
++  it('每页 wrapper 同时带 data-page-w / data-page-h 属性（供测试断言 / e2e 抓取）', async () => {
++    const { PdfImagesPreview: FreshPdfImagesPreview } = await import('../src/previewers/PdfImagesPreview')
++    const t = {
++      id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [{ page: 1, url: '/u1', textUrl: '/u1-text', width: 1020, height: 1320, bytes: 100 }],
++      pagesTotal: 1
++    } as Task
++    global.fetch = vi.fn(async () => ({
++      ok: true,
++      text: async () =>
++        '<div class="pdf-text-layer" data-page-w="1020" data-page-h="1320">' +
++        '<span style="position:absolute;left:0;top:0;width:1px;height:1px">x</span>' +
++        '</div>'
++    })) as any
++
++    render(<FreshPdfImagesPreview task={t} />)
++    await waitFor(() => {
++      expect(document.querySelector('.pdf-text-layer')).toBeTruthy()
++    })
++
++    const wrapper = document.querySelector('.pdf-image-page') as HTMLElement
++    expect(wrapper.getAttribute('data-page-w')).toBe('1020')
++    expect(wrapper.getAttribute('data-page-h')).toBe('1320')
++  })
++})
++
+ describe('PdfImagesPreview - 文字覆盖层', () => {
+   let originalFetch: any
+ 
+diff --git a/office-preview-app/web/tsconfig.tsbuildinfo b/office-preview-app/web/tsconfig.tsbuildinfo
+index 7803d7e..c2b3260 100644
+--- a/office-preview-app/web/tsconfig.tsbuildinfo
++++ b/office-preview-app/web/tsconfig.tsbuildinfo
+@@ -1 +1 @@
+-{"root":["./src/app.tsx","./src/main.tsx","./src/perf.ts","./src/store.ts","./src/types.ts","./src/vite-env.d.ts","./src/components/perfpanel.tsx","./src/components/previewmodal.tsx","./src/components/taskcard.tsx","./src/components/uploaddrop.tsx","./src/previewers/docxpreview.tsx","./src/previewers/mediapreview.tsx","./src/previewers/pdfimagespreview.tsx","./src/previewers/pdfpreview.tsx","./src/previewers/pdfpreviewwasm.tsx","./src/previewers/textpreview.tsx","./src/previewers/index.tsx","./src/utils/predictive-render.ts","./test/pdfimagespreview.test.tsx","./test/previewmodal.test.tsx","./test/taskcard.test.tsx","./test/setup.ts","./test/types.test.ts","./e2e/smoke.spec.ts","./playwright.config.ts","./vitest.config.ts"],"version":"5.9.3"}
+\ No newline at end of file
++{"root":["./src/app.tsx","./src/main.tsx","./src/perf.ts","./src/store.ts","./src/types.ts","./src/vite-env.d.ts","./src/components/perfpanel.tsx","./src/components/previewmodal.tsx","./src/components/taskcard.tsx","./src/components/uploaddrop.tsx","./src/previewers/docxpreview.tsx","./src/previewers/mediapreview.tsx","./src/previewers/pdfimagespreview.tsx","./src/previewers/pdfpreview.tsx","./src/previewers/pdfpreviewwasm.tsx","./src/previewers/textpreview.tsx","./src/previewers/index.tsx","./src/utils/predictive-render.ts","./test/pdfimagespreview.test.tsx","./test/previewmodal.test.tsx","./test/taskcard.test.tsx","./test/setup.ts","./test/types.test.ts","./e2e/image-with-text.spec.ts","./e2e/mode-toggle.spec.ts","./e2e/screenshot-align.spec.ts","./e2e/screenshot-alignment.spec.ts","./e2e/screenshot-debug.spec.ts","./e2e/screenshot-selection.spec.ts","./e2e/smoke.spec.ts","./e2e/text-image-alignment.spec.ts","./playwright.config.ts","./vitest.config.ts"],"errors":true,"version":"5.9.3"}
+\ No newline at end of file

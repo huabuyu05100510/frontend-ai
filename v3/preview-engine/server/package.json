@@ -1,0 +1,12 @@
+{
+  "name": "preview-engine-collab-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "零依赖 Node WebSocket 协同服务端（CRDT 中转 + LibreOffice PDF 转换）",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test ./__tests__"
+  },
+  "dependencies": {}
+}

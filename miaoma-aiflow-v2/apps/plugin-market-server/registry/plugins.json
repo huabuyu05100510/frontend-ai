@@ -1,0 +1,56 @@
+{
+    "plugins": [
+        {
+            "pluginId": "@miaoma/current-time",
+            "packageRelativePath": "packages/plugin-current-time",
+            "category": "UTILITY",
+            "status": "PUBLISHED",
+            "isOfficial": true,
+            "downloadCount": 128,
+            "installCount": 128,
+            "rating": 5,
+            "ratingCount": 8,
+            "author": {
+                "id": "official-registry",
+                "name": "妙码学院"
+            },
+            "createdAt": "2026-04-05T00:00:00.000Z",
+            "updatedAt": "2026-04-05T00:00:00.000Z",
+            "versions": [
+                {
+                    "version": "1.0.0",
+                    "status": "APPROVED",
+                    "changelog": "初始版本，提供当前时间与时区格式化输出能力。",
+                    "publishedAt": "2026-04-05T00:00:00.000Z",
+                    "createdAt": "2026-04-05T00:00:00.000Z"
+                }
+            ]
+        },
+        {
+            "pluginId": "@miaoma/email-sender",
+            "packageRelativePath": "packages/plugin-email-sender",
+            "category": "COMMUNICATION",
+            "status": "PUBLISHED",
+            "isOfficial": true,
+            "downloadCount": 32,
+            "installCount": 32,
+            "rating": 5,
+            "ratingCount": 3,
+            "author": {
+                "id": "official-registry",
+                "name": "妙码学院"
+            },
+            "createdAt": "2026-04-05T00:00:00.000Z",
+            "updatedAt": "2026-04-05T00:00:00.000Z",
+            "versions": [
+                {
+                    "version": "1.0.0",
+                    "status": "APPROVED",
+                    "changelog": "初始版本，支持通过平台内置 SMTP 邮件服务发送邮件。",
+                    "publishedAt": "2026-04-05T00:00:00.000Z",
+                    "createdAt": "2026-04-05T00:00:00.000Z"
+                }
+            ]
+        }
+    ]
+}

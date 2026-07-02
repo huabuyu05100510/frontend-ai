@@ -1,0 +1,62 @@
+# ─── Node / 包管理 ──────────────────────────────────────────
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+yarn-error.log*
+npm-debug.log*
+pnpm-debug.log*
+
+# ─── 构建产物 ──────────────────────────────────────────────
+dist/
+build/
+out/
+*.tsbuildinfo
+.cache/
+.turbo/
+
+# ─── 测试 & 覆盖率 ────────────────────────────────────────
+coverage/
+.nyc_output/
+*.lcov
+
+# ─── 运行时生成物（不应入仓）─────────────────────────────
+# 骨架屏数据
+bones/
+.smarty-cache/
+.sk-registry/
+
+# 截图 / diff
+*.png.bak
+screenshots/
+__snapshots__/
+
+# ─── 编辑器 / 系统 ────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── 环境变量 / 密钥 ──────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ─── 临时文件 ─────────────────────────────────────────────
+*.log
+.tmp/
+tmp/
+.temp/
+
+# ─── Playwright ───────────────────────────────────────────
+/playwright-report/
+/playwright/.cache/
+test-results/
+
+# ─── Vite ─────────────────────────────────────────────────
+.vite/
+*.local

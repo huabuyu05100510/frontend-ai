@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shadow DOM SPA Fixture</title>
+<style>
+body { font: 15px/1.5 -apple-system, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+.spa-root { padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; }
+h1 { font-size: 22px; }
+</style>
+</head>
+<body>
+<h1>Modern Web Components Application</h1>
+<div class="spa-root">
+  <shadow-card>
+    <template shadowrootmode="open">
+      <style>.x{padding:10px;background:#fff;border-radius:6px;border:1px solid #e5e7eb}</style>
+      <div class="x"><h2>Inside the Shadow</h2><p>This paragraph lives inside a shadow DOM tree.</p></div>
+    </template>
+  </shadow-card>
+  <shadow-card>
+    <template shadowrootmode="open">
+      <style>.x{padding:10px;background:#fff;border-radius:6px;border:1px solid #e5e7eb;margin-top:8px}</style>
+      <div class="x"><p>The component encapsulates its own styling and structure.</p></div>
+    </template>
+  </shadow-card>
+</div>
+<script>window.__xtFixtureReady = true;</script>
+</body>
+</html>

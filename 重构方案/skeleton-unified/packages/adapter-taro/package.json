@@ -1,0 +1,16 @@
+{
+  "name": "@skeleton/adapter-taro",
+  "version": "1.0.0",
+  "description": "骨架屏 Taro 适配器（H5/微信小程序双端）",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@skeleton/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@tarojs/taro": ">=3.0.0"
+  }
+}

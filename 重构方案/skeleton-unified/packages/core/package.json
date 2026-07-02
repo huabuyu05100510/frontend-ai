@@ -1,0 +1,21 @@
+{
+  "name": "@skeleton/core",
+  "version": "1.0.0",
+  "description": "骨架屏算法核心 - 纯算法，无任何平台依赖",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

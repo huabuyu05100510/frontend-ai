@@ -1,0 +1,69 @@
+================================================================================
+                         简历项目经历 - 直接复制版
+================================================================================
+
+【项目名称】
+voice-kit — 跨端语音技术基建 SDK（PC / H5 / 微信小程序三端通用）
+
+【项目角色】
+前端架构师 / 核心开发（独立设计）
+
+【项目简介】
+沉淀实时语音交互全场景的跨端技术基建，抽象出可移植核心 + 可替换适配器 + 场景级状态机三层架构。覆盖实时转写、实时对话、同声传译、关键词唤醒、VAD端点检测、TTS播放、声纹克隆、声音设计、离线文件转写、播客生成共10个语音场景。以pnpm monorepo + Turbo组织30+ npm包，全部公开发布。
+
+【技术栈】
+React 18 · TypeScript 5 · Vite · AudioWorklet · SharedArrayBuffer/Atomics · WASM（Speex/Opus/Silero VAD）· WebSocket · OpenTelemetry · IndexedDB · Web Worker · pnpm Workspace + Turbo · Vitest + fast-check + Playwright
+
+【核心技术亮点】
+
+1. 设计responseId门控的Barge-in状态机，跨"队列/解码/播放"三阶段原子中断，配合TLA+形式化规约证明interrupt()完成后无陈旧音频泄漏，解决实时对话中"打断后仍播放上一句尾巴"的经典竞态。
+
+2. 首创chunk_id → RTT回显观测协议 + HDR Histogram：客户端在AudioWorklet帧边界打单调id，服务端ack回传，对数线性桶3位有效数字无损p99，经OpenTelemetry导出，p99误差≤1%（替代传统"滑动窗口估算p99"的统计学伪命题）。
+
+3. AudioWorklet + SharedArrayBuffer零拷贝环形缓冲：用Atomics.wait/notify在独立索引SAB上同步，主线程100%负载下仍稳定20ms帧节奏；无跨域隔离环境自动降级MessagePort拷贝路径。
+
+4. 流式ASR四路径去重Reducer（514行纯函数）：处理累积/增量/混合三种引擎模式的乱序partial与终结后修正，normalizeForCompare标点归一化前缀比对，djb2哈希稳定说话人着色；以fast-check属性测试验证幂等性与去重收敛。
+
+5. 时间调度的AudioContext播放队列：AudioBufferSourceNode.start(atTime) + 漂移补偿（nextStartTime = max(ctx.currentTime + ε, lastEnd)），暴露getScheduledEndTime供上层决策解麦时机，根治TTS流式播放的咔哒声与间隙。
+
+6. 三端跨端抽象：通过IAudioCapture / IAudioPlayer / ITransport / IStorage接口契约 + 依赖注入工厂模式，让同一套场景状态机在浏览器（AudioWorklet）、微信小程序（RecorderManager + WXWebAssembly）、Electron三端零修改复用，包体积按场景拆分（核心reducer ≤6KB gzip，全对话场景≤45KB gzip）。
+
+【项目数据】
+• 30+ npm包（@voice-kit/* scope公开发布）
+• 180+单元测试 + fast-check属性测试 + 黄金fixture测试 + Playwright e2e
+• 核心包覆盖率≥90%
+• 支持10个语音场景，3端运行
+
+================================================================================
+                              面试自我介绍（1分钟）
+================================================================================
+
+voice-kit是我把多年语音前端经验沉淀成的跨端SDK——把实时对话的Barge-in竞态、流式ASR的乱序去重、端到端延迟观测这些"每个语音应用都要重写一遍的脏活"，做成可移植的核心包加可替换的端适配器，让浏览器、微信小程序、Electron三端共用同一套状态机。30+ npm包公开发布，附TLA+形式化规约和fast-check属性测试。
+
+================================================================================
+                           与14年专家定位契合点
+================================================================================
+
+• 系统级而非页面级思维：协议编解码、状态机、跨端架构、可观测体系
+• 形式化方法：TLA+规约、fast-check属性测试
+• 底层API深度：AudioWorklet、SharedArrayBuffer/Atomics、WebAssembly内存模型
+• 性能工程：HDR Histogram、零拷贝、自适应码率、包体积预算
+• 领域纵深：不是"会做语音功能"，而是"懂语音交互的脏活"（去重、竞态、调度、恢复）
+• 工程化：30+包monorepo、changesets、Turbo远程缓存、size-limit CI
+
+================================================================================
+                            量化数据（简历必填）
+================================================================================
+
+| 指标         | 数据                                  |
+|-------------|--------------------------------------|
+| npm包数量    | 30+                                  |
+| 测试覆盖     | 180+单元测试 + 属性测试 + E2E        |
+| 核心覆盖率   | ≥90%                                 |
+| 支持场景     | 10个语音场景                         |
+| 支持平台     | 3端（Web/小程序/Electron）           |
+| 核心包体积   | ≤6KB gzip（reducer）                 |
+| 全场景体积   | ≤45KB gzip（对话）                   |
+| p99误差      | ≤1%（HDR Histogram）                 |
+| 帧稳定性     | 20ms帧节奏（主线程100%负载）         |
+

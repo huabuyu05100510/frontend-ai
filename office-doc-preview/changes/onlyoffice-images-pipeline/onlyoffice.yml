@@ -1,0 +1,21 @@
+# OnlyOffice Document Server — 本地开发 compose 片段
+# 用法：docker compose -f changes/onlyoffice-images-pipeline/onlyoffice.yml up -d
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: onlyoffice
+    ports:
+      - "8080:80"
+    environment:
+      - JWT_SECRET=mvtndSBp0a7fa400u81Cq2MSfddXD090
+      # 若服务器在容器外跑，用 extra_hosts 让 OnlyOffice 访问宿主机
+      # - extra_hosts:
+      #     - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    volumes:
+      - onlyoffice_data:/var/lib/onlyoffice/documentserver/App_Data
+      - onlyoffice_logs:/var/log/onlyoffice
+
+volumes:
+  onlyoffice_data:
+  onlyoffice_logs:

@@ -1,0 +1,17 @@
+{
+  "name": "@voice-kit/provider-zhipu",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --dts --format esm,cjs",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@voice-kit/core-types": "workspace:*",
+    "@voice-kit/core-utils": "workspace:*"
+  }
+}

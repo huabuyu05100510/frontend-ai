@@ -1,0 +1,17 @@
+{
+  "name": "@smarty-skeleton-toolchain/trinity-chrome-extension",
+  "version": "1.0.0",
+  "description": "Trinity Transpiler - Three-layer layout transpilation engine for Chrome",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js && echo 'Extension built in dist/ directory'",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "chrome-extension",
+    "layout",
+    "transpiler",
+    "skeleton-screen",
+    "cls"
+  ]
+}

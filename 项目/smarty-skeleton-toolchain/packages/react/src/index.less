@@ -1,0 +1,25 @@
+.ske-wrap {
+  position: relative;
+  transition: all 0.3s;
+
+  &.loadingWithCache { 
+    .ske-real-dom { opacity: 0; } 
+  }
+
+  &.loaded { 
+    .ske-innerwrap { animation: fade-out 0.5s forwards; } 
+  }
+
+  .ske-innerwrap {
+    opacity: 1;
+    z-index: 1111;
+    position: absolute;
+    left: 0; top: 0; bottom: 0; right: 0;
+  }
+}
+
+@keyframes fade-out {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 0; z-index: -1111; display: none; }
+}

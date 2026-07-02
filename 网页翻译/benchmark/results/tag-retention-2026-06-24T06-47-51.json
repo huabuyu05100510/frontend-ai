@@ -1,0 +1,623 @@
+{
+  "meta": {
+    "ts": "2026-06-24T06-47-51",
+    "url": "http://localhost:8787",
+    "tgtLang": "中文",
+    "cases": 24
+  },
+  "summary": {
+    "placeholder": {
+      "rate": 0.918918918918919,
+      "retained": 68,
+      "expected": 74
+    },
+    "direct": {
+      "rate": 0.972972972972973,
+      "retained": 72,
+      "expected": 74
+    },
+    "improvement": -0.05405405405405406
+  },
+  "cases": [
+    {
+      "id": "b-single",
+      "html": "Buy <b>now</b> for free",
+      "desc": "单个 <b>",
+      "placeholder": {
+        "outputHtml": "立即<b>购买</b>，免费",
+        "encodedInput": "Buy ⟦t1:b⟧now⟦/t1⟧ for free",
+        "rawLLMOutput": "立即⟦t1:b⟧购买⟦/t1⟧，免费",
+        "latencyMs": 1189,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "立即<strong>购买</strong>免费",
+        "latencyMs": 802,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "em-single",
+      "html": "This is <em>very important</em> information",
+      "desc": "单个 <em>",
+      "placeholder": {
+        "outputHtml": "这是<em>非常重要的</em>信息",
+        "encodedInput": "This is ⟦t1:em⟧very important⟦/t1⟧ information",
+        "rawLLMOutput": "这是⟦t1:em⟧非常重要的⟦/t1⟧信息",
+        "latencyMs": 898,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "这是 <em>非常重要的</em> 信息",
+        "latencyMs": 786,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "strong",
+      "html": "<strong>Warning:</strong> this action cannot be undone",
+      "desc": "<strong> 在句首",
+      "placeholder": {
+        "outputHtml": "<strong>警告：</strong>此操作无法撤销",
+        "encodedInput": "⟦t1:strong⟧Warning:⟦/t1⟧ this action cannot be undone",
+        "rawLLMOutput": "⟦t1:strong⟧警告：⟦/t1⟧此操作无法撤销",
+        "latencyMs": 1075,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "<strong>警告：</strong>此操作无法撤销",
+        "latencyMs": 965,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "code-inline",
+      "html": "Run <code>npm install</code> to get started",
+      "desc": "<code> 内联",
+      "placeholder": {
+        "outputHtml": "运行 <code>npm install</code> 开始使用",
+        "encodedInput": "Run ⟦t1:code⟧npm install⟦/t1⟧ to get started",
+        "rawLLMOutput": "运行 ⟦t1:code⟧npm install⟦/t1⟧ 开始使用",
+        "latencyMs": 1015,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "运行 <code>npm install</code> 开始使用",
+        "latencyMs": 866,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "link-basic",
+      "html": "Click <a href=\"/docs\">here</a> to read more",
+      "desc": "<a> 链接",
+      "placeholder": {
+        "outputHtml": "点击 <a href=\"/docs\">这里</a> 阅读更多",
+        "encodedInput": "Click ⟦t1:a⟧here⟦/t1⟧ to read more",
+        "rawLLMOutput": "点击 ⟦t1:a⟧这里⟦/t1⟧ 阅读更多",
+        "latencyMs": 921,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "点击 <a href=\"/docs\">这里</a> 阅读更多",
+        "latencyMs": 777,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "multi-tags",
+      "html": "The <b>quick</b> and <em>lazy</em> approach works",
+      "desc": "多个不同标签",
+      "placeholder": {
+        "outputHtml": "<b>快速</b>和<em>懒惰</em>的方法有效",
+        "encodedInput": "The ⟦t1:b⟧quick⟦/t1⟧ and ⟦t2:em⟧lazy⟦/t2⟧ approach works",
+        "rawLLMOutput": "⟦t1:b⟧快速⟦/t1⟧和⟦t2:em⟧懒惰⟦/t2⟧的方法有效",
+        "latencyMs": 1455,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "快速<em>懒惰</em>的方法有效",
+        "latencyMs": 639,
+        "rate": 0.5,
+        "retained": 2,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "same-tag",
+      "html": "<em>First</em> do this, then <em>second</em> step",
+      "desc": "同类型重复标签",
+      "placeholder": {
+        "outputHtml": "<em>首先</em>做这个，然后<em>第二步</em>",
+        "encodedInput": "⟦t1:em⟧First⟦/t1⟧ do this, then ⟦t2:em⟧second⟦/t2⟧ step",
+        "rawLLMOutput": "⟦t1:em⟧首先⟦/t1⟧做这个，然后⟦t2:em⟧第二步⟦/t2⟧",
+        "latencyMs": 1466,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "<em>首先</em>执行此操作，然后<em>第二</em>步",
+        "latencyMs": 966,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "link-code",
+      "html": "See the <a href=\"/api\"><code>API reference</code></a> for details",
+      "desc": "<a> 包裹 <code>",
+      "placeholder": {
+        "outputHtml": "有关详细信息，请参阅 <a href=\"/api\"><code>API 参考</code></a>",
+        "encodedInput": "See the ⟦t1:a⟧⟦t2:code⟧API reference⟦/t2⟧⟦/t1⟧ for details",
+        "rawLLMOutput": "有关详细信息，请参阅 ⟦t1:a⟧⟦t2:code⟧API 参考⟦/t2⟧⟦/t1⟧",
+        "latencyMs": 1492,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "请参阅 <a href=\"/api\"><code>API 参考</code></a> 了解详情",
+        "latencyMs": 1018,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "nested",
+      "html": "<b>This is <em>very</em> important</b> note",
+      "desc": "嵌套标签",
+      "placeholder": {
+        "outputHtml": "<b>这是一个<em>非常</em>重要的</b>注意事项",
+        "encodedInput": "⟦t1:b⟧This is ⟦t2:em⟧very⟦/t2⟧ important⟦/t1⟧ note",
+        "rawLLMOutput": "⟦t1:b⟧这是一个⟦t2:em⟧非常⟦/t2⟧重要的⟦/t1⟧注意事项",
+        "latencyMs": 1101,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "<b>这是一个<em>非常</em>重要的</b>注意事项",
+        "latencyMs": 941,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "nested-link",
+      "html": "Click <a href=\"/start\"><strong>Get Started</strong></a> button",
+      "desc": "<a> 嵌套 <strong>",
+      "placeholder": {
+        "outputHtml": "点击 <a href=\"/start\"><strong>开始使用</strong></a>按钮",
+        "encodedInput": "Click ⟦t1:a⟧⟦t2:strong⟧Get Started⟦/t2⟧⟦/t1⟧ button",
+        "rawLLMOutput": "点击 ⟦t1:a⟧⟦t2:strong⟧开始使用⟦/t2⟧⟦/t1⟧按钮",
+        "latencyMs": 1527,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "点击 <a href=\"/start\"><strong>开始使用</strong></a> 按钮",
+        "latencyMs": 871,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "multi-word",
+      "html": "The <em>quick brown fox</em> jumps over the dog",
+      "desc": "多词在标签内",
+      "placeholder": {
+        "outputHtml": "<em>敏捷的棕色狐狸</em>跳过了狗",
+        "encodedInput": "The ⟦t1:em⟧quick brown fox⟦/t1⟧ jumps over the dog",
+        "rawLLMOutput": "⟦t1:em⟧敏捷的棕色狐狸⟦/t1⟧跳过了狗",
+        "latencyMs": 827,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "El <em>zorro marrón rápido</em> salta sobre el perro",
+        "latencyMs": 1176,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": false
+      }
+    },
+    {
+      "id": "long-link",
+      "html": "Read our <a href=\"/guide\">comprehensive getting started guide</a> today",
+      "desc": "多词链接",
+      "placeholder": {
+        "outputHtml": "阅读我们<a href=\"/guide\">全面的入门指南</a>今天",
+        "encodedInput": "Read our ⟦t1:a⟧comprehensive getting started guide⟦/t1⟧ today",
+        "rawLLMOutput": "阅读我们⟦t1:a⟧全面的入门指南⟦/t1⟧今天",
+        "latencyMs": 1394,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "阅读我们的 <a href=\"/guide\">全面的入门指南</a> 今天",
+        "latencyMs": 779,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "tech-1",
+      "html": "The <code>useEffect</code> hook runs after every render",
+      "desc": "技术术语",
+      "placeholder": {
+        "outputHtml": "<code>useEffect</code> 钩子在每次渲染后运行",
+        "encodedInput": "The ⟦t1:code⟧useEffect⟦/t1⟧ hook runs after every render",
+        "rawLLMOutput": "⟦t1:code⟧useEffect⟦/t1⟧ 钩子在每次渲染后运行",
+        "latencyMs": 1159,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "<code>useEffect</code> 钩子在每次渲染后运行",
+        "latencyMs": 765,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "tech-2",
+      "html": "Set <code>NODE_ENV=production</code> before deploying",
+      "desc": "代码含等号",
+      "placeholder": {
+        "outputHtml": "在部署之前设置 ⟦t1:代码⟧NODE_ENV=production</code>",
+        "encodedInput": "Set ⟦t1:code⟧NODE_ENV=production⟦/t1⟧ before deploying",
+        "rawLLMOutput": "在部署之前设置 ⟦t1:代码⟧NODE_ENV=production⟦/t1⟧",
+        "latencyMs": 1169,
+        "rate": 0.5,
+        "retained": 1,
+        "expected": 2,
+        "balanced": false,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "在部署前设置 <code>NODE_ENV=production</code>",
+        "latencyMs": 1084,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "tech-3",
+      "html": "Use <kbd>Ctrl+C</kbd> to copy and <kbd>Ctrl+V</kbd> to paste",
+      "desc": "<kbd> 快捷键",
+      "placeholder": {
+        "outputHtml": "使用 Ctrl+C</kbd> 进行复制，使用 Ctrl+V</kbd> 进行粘贴",
+        "encodedInput": "Use ⟦t1:kbd⟧Ctrl+C⟦/t1⟧ to copy and ⟦t2:kbd⟧Ctrl+V⟦/t2⟧ to paste",
+        "rawLLMOutput": "使用 ⟦t1:kbd⟧Ctrl+C⟦/t1⟧ 进行复制，使用 ⟦t2:kbd⟧Ctrl+V⟦/t2⟧ 进行粘贴",
+        "latencyMs": 1846,
+        "rate": 0.5,
+        "retained": 2,
+        "expected": 4,
+        "balanced": false,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "使用 <kbd>Ctrl+C</kbd> 进行复制，使用 <kbd>Ctrl+V</kbd> 进行粘贴",
+        "latencyMs": 1069,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "price",
+      "html": "Was <del>$100</del> now only <strong>$49</strong>",
+      "desc": "<del> 价格",
+      "placeholder": {
+        "outputHtml": "原价$100</del> 现在仅需 <strong>$49</strong>",
+        "encodedInput": "Was ⟦t1:del⟧$100⟦/t1⟧ now only ⟦t2:strong⟧$49⟦/t2⟧",
+        "rawLLMOutput": "原价⟦t1:del⟧$100⟦/t1⟧ 现在仅需 ⟦t2:strong⟧$49⟦/t2⟧",
+        "latencyMs": 1115,
+        "rate": 0.75,
+        "retained": 3,
+        "expected": 4,
+        "balanced": false,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "原价 <del>100美元</del> 现在仅售 <strong>49美元</strong>",
+        "latencyMs": 1102,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "cta",
+      "html": "Get <mark>50% off</mark> today with code <code>SAVE50</code>",
+      "desc": "促销内容",
+      "placeholder": {
+        "outputHtml": "今天使用优惠码 <code>SAVE50</code> 享受 5折</mark>优惠",
+        "encodedInput": "Get ⟦t1:mark⟧50% off⟦/t1⟧ today with code ⟦t2:code⟧SAVE50⟦/t2⟧",
+        "rawLLMOutput": "今天使用优惠码 ⟦t2:code⟧SAVE50⟦/t2⟧ 享受 ⟦t1:mark⟧5折⟦/t1⟧优惠",
+        "latencyMs": 1538,
+        "rate": 0.75,
+        "retained": 3,
+        "expected": 4,
+        "balanced": false,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "今天使用优惠码 <code>SAVE50</code> 享受 <mark>5折优惠</mark>",
+        "latencyMs": 845,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "abbr",
+      "html": "The <abbr title=\"Application Programming Interface\">API</abbr> is ready",
+      "desc": "<abbr> 缩写",
+      "placeholder": {
+        "outputHtml": "API</abbr> 已准备就绪",
+        "encodedInput": "The ⟦t1:abbr⟧API⟦/t1⟧ is ready",
+        "rawLLMOutput": "⟦t1:abbr⟧API⟦/t1⟧ 已准备就绪",
+        "latencyMs": 1155,
+        "rate": 0.5,
+        "retained": 1,
+        "expected": 2,
+        "balanced": false,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "<abbr title=\"应用程序编程接口\">API</abbr> 已准备就绪",
+        "latencyMs": 1111,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "sub-sup",
+      "html": "Water is H<sub>2</sub>O and E=mc<sup>2</sup>",
+      "desc": "<sub>/<sup>",
+      "placeholder": {
+        "outputHtml": "水是H<sub>2</sub>O和爱因斯坦的质能方程E=mc<sup>2</sup>",
+        "encodedInput": "Water is H⟦t1:sub⟧2⟦/t1⟧O and E=mc⟦t2:sup⟧2⟦/t2⟧",
+        "rawLLMOutput": "水是H⟦t1:sub⟧2⟦/t1⟧O和爱因斯坦的质能方程E=mc⟦t2:sup⟧2⟦/t2⟧",
+        "latencyMs": 1388,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "水是 H<sub>2</sub>O 而 E=mc<sup>2</sup>",
+        "latencyMs": 1248,
+        "rate": 1,
+        "retained": 4,
+        "expected": 4,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "complex-1",
+      "html": "This <b>powerful</b> feature lets you <a href=\"/docs\">configure</a> everything in <em>real time</em>",
+      "desc": "长句多标签",
+      "placeholder": {
+        "outputHtml": "这个<b>强大的</b>功能让你可以<a href=\"/docs\">实时配置</a>一切<em>实时</em>",
+        "encodedInput": "This ⟦t1:b⟧powerful⟦/t1⟧ feature lets you ⟦t2:a⟧configure⟦/t2⟧ everything in ⟦t3:em⟧real time⟦/t3⟧",
+        "rawLLMOutput": "这个⟦t1:b⟧强大的⟦/t1⟧功能让你可以⟦t2:a⟧实时配置⟦/t2⟧一切⟦t3:em⟧实时⟦/t3⟧",
+        "latencyMs": 1785,
+        "rate": 1,
+        "retained": 6,
+        "expected": 6,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "Esta <b>poderosa</b> característica le permite <a href=\"/docs\">configurar</a> todo en <em>tiempo real</em>",
+        "latencyMs": 1317,
+        "rate": 1,
+        "retained": 6,
+        "expected": 6,
+        "balanced": true,
+        "translated": false
+      }
+    },
+    {
+      "id": "complex-2",
+      "html": "<strong>Pro tip:</strong> always <code>git commit</code> before <em>major</em> changes to your <a href=\"/repo\">repository</a>",
+      "desc": "4种标签混合",
+      "placeholder": {
+        "outputHtml": "<strong>专业提示：</strong>在进行<em>重大</em>更改之前，始终执行<code>git commit</code>到你的<a href=\"/repo\">代码库</a>",
+        "encodedInput": "⟦t1:strong⟧Pro tip:⟦/t1⟧ always ⟦t2:code⟧git commit⟦/t2⟧ before ⟦t3:em⟧major⟦/t3⟧ changes to your ⟦t4:a⟧repository⟦/t4⟧",
+        "rawLLMOutput": "⟦t1:strong⟧专业提示：⟦/t1⟧在进行⟦t3:em⟧重大⟦/t3⟧更改之前，始终执行⟦t2:code⟧git commit⟦/t2⟧到你的⟦t4:a⟧代码库⟦/t4⟧",
+        "latencyMs": 2886,
+        "rate": 1,
+        "retained": 8,
+        "expected": 8,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "<strong>专业提示：</strong>在进行<em>重大</em>更改之前，请始终使用<code>git commit</code>提交到您的<a href=\"/repo\">代码库</a>",
+        "latencyMs": 1618,
+        "rate": 1,
+        "retained": 8,
+        "expected": 8,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "tag-start",
+      "html": "<em>Note:</em> this feature is experimental",
+      "desc": "标签在最前",
+      "placeholder": {
+        "outputHtml": "<em>注意:</em> 此功能是实验性的",
+        "encodedInput": "⟦t1:em⟧Note:⟦/t1⟧ this feature is experimental",
+        "rawLLMOutput": "⟦t1:em⟧注意:⟦/t1⟧ 此功能是实验性的",
+        "latencyMs": 1229,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "<em>注意：</em>此功能是实验性的",
+        "latencyMs": 778,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "tag-end",
+      "html": "This feature is currently <em>experimental</em>",
+      "desc": "标签在最后",
+      "placeholder": {
+        "outputHtml": "此功能目前是 <em>实验性的</em>",
+        "encodedInput": "This feature is currently ⟦t1:em⟧experimental⟦/t1⟧",
+        "rawLLMOutput": "此功能目前是 ⟦t1:em⟧实验性的⟦/t1⟧",
+        "latencyMs": 1167,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "此功能目前处于 <em>实验性</em> 阶段",
+        "latencyMs": 955,
+        "rate": 1,
+        "retained": 2,
+        "expected": 2,
+        "balanced": true,
+        "translated": true
+      }
+    },
+    {
+      "id": "no-tags",
+      "html": "This is a plain sentence without any HTML tags",
+      "desc": "无标签基线",
+      "placeholder": {
+        "outputHtml": "这是一个没有任何HTML标签的普通句子",
+        "encodedInput": "This is a plain sentence without any HTML tags",
+        "rawLLMOutput": "这是一个没有任何HTML标签的普通句子",
+        "latencyMs": 875,
+        "rate": null,
+        "retained": 0,
+        "expected": 0,
+        "balanced": true,
+        "translated": true
+      },
+      "direct": {
+        "outputHtml": "这是一个没有任何 HTML 标签的简单句子",
+        "latencyMs": 964,
+        "rate": null,
+        "retained": 0,
+        "expected": 0,
+        "balanced": true,
+        "translated": true
+      }
+    }
+  ]
+}

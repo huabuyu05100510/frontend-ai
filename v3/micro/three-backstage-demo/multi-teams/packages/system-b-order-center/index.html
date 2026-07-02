@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>订单中心 - 团队 B</title>
+    <style>
+      body { margin: 0; font-family: -apple-system, sans-serif; background: #fff; }
+      .sb-header { background: #52c41a; color: #fff; padding: 12px 24px; font-size: 16px; font-weight: 600; }
+      .sb-content { padding: 24px; }
+      .sb-title { font-size: 20px; font-weight: 600; margin: 0 0 16px; }
+      .sb-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      .sb-table th, .sb-table td { padding: 10px 12px; border-bottom: 1px solid #e4e7ed; text-align: left; }
+      .sb-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+      .sb-pending { background: #fffbe6; color: #faad14; border: 1px solid #ffe58f; }
+      .sb-paid { background: #e6f4ff; color: #1677ff; border: 1px solid #91caff; }
+      .sb-done { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
+      .sb-link { color: #52c41a; cursor: pointer; text-decoration: none; margin-right: 16px; }
+      .sb-tab { display: inline-block; padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; }
+      .sb-tab.active { border-bottom-color: #52c41a; color: #52c41a; }
+    </style>
+  </head>
+  <body>
+    <div class="sb-header">订单中心 <span style="background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px;">独立仓库 · 团队 B</span></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

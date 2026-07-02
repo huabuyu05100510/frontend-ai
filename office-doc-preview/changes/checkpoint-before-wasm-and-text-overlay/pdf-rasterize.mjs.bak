@@ -1,0 +1,130 @@
+// PDF 栅格化层：薄包装在 pdftoppm/pdfinfo 之上
+// 已有：getPdfPageCount / rasterizePages（低层 API）
+// 本次新增：rasterizeThumb / rasterizeAllPages / imageDimensions / fileSize（高层包装）
+// 模型：Claude MiniMax-M3（MiniMax）
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import { CONFIG } from './config.mjs'
+
+// ============ 低层 ============
+export function getPdfPageCount(filePath) {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(filePath)) return resolve(0)
+    const c = spawn(CONFIG.PDFINFO, [filePath], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    c.stdout.on('data', d => { out += d.toString() })
+    c.on('close', () => {
+      const m = out.match(/^Pages:\s+(\d+)/m)
+      resolve(m ? Number(m[1]) : 0)
+    })
+    c.on('error', () => resolve(0)) // 容错：不抛错，返回 0
+  })
+}
+
+export function rasterizePages(filePath, from, to, dpi, outDir, prefix) {
+  return new Promise((resolve, reject) => {
+    fs.mkdirSync(outDir, { recursive: true })
+    const args = ['-png', '-r', String(dpi), '-f', String(from), '-l', String(to), filePath, path.join(outDir, prefix)]
+    const c = spawn(CONFIG.PDFTOPPM, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let err = ''
+    c.stderr.on('data', d => { err += d.toString() })
+    c.on('error', reject)
+    c.on('close', code => {
+      if (code !== 0) return reject(new Error(`pdftoppm exited ${code}: ${err.slice(0, 300)}`))
+      const files = []
+      for (let p = from; p <= to; p++) {
+        const candidates = [
+          path.join(outDir, `${prefix}-${String(p).padStart(2, '0')}.png`),
+          path.join(outDir, `${prefix}-${String(p).padStart(3, '0')}.png`),
+          path.join(outDir, `${prefix}-${p}.png`)
+        ]
+        const f = candidates.find(c => fs.existsSync(c))
+        if (f) files.push({ page: p, file: f })
+      }
+      resolve(files)
+    })
+  })
+}
+
+// ============ 高层包装 ============
+
+/** 渲染第 1 页为缩略图。返回 PNG 路径。失败抛错。 */
+export async function rasterizeThumb(filePath, outPath, dpi = CONFIG.RASTERIZE_THUMB_DPI) {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true })
+  const outDir = path.dirname(outPath)
+  const prefix = path.basename(outPath, '.png')
+  const results = await rasterizePages(filePath, 1, 1, dpi, outDir, prefix)
+  if (!results.length) throw new Error('rasterizeThumb: pdftoppm produced no file')
+  // pdftoppm 会自动加 -N 后缀，重命名为预期的 outPath
+  const actual = results[0].file
+  if (actual !== outPath) {
+    fs.renameSync(actual, outPath)
+  }
+  return outPath
+}
+
+/** 渲染全部页为 PNG。支持并发（分桶）。
+ *  onProgress(done) 每完成一页调用一次（累加）。
+ *  返回 [{ page, file }, ...] 数组。
+ */
+export async function rasterizeAllPages(filePath, outDir, prefix, dpi = CONFIG.RASTERIZE_PAGE_DPI, parallel = CONFIG.RASTERIZE_PAGE_PARALLEL, onProgress) {
+  fs.mkdirSync(outDir, { recursive: true })
+  const total = await getPdfPageCount(filePath)
+  if (total <= 0) return []
+
+  // 分桶：每桶最多 ceil(total / parallel) 页；桶内串行以避免 pdftoppm 写同一目录冲突
+  const perBucket = Math.max(1, Math.ceil(total / parallel))
+  const buckets = []
+  for (let from = 1; from <= total; from += perBucket) {
+    buckets.push({ from, to: Math.min(from + perBucket - 1, total) })
+  }
+
+  const allFiles = []
+  let done = 0
+  await Promise.all(buckets.map(async (b) => {
+    const bucketDir = path.join(outDir, `_chunk_${b.from}_${b.to}`)
+    const files = await rasterizePages(filePath, b.from, b.to, dpi, bucketDir, prefix)
+    // 把临时桶文件移动到正式目录（避免命名冲突）
+    for (const f of files) {
+      const dest = path.join(outDir, path.basename(f.file))
+      fs.renameSync(f.file, dest)
+      allFiles.push({ page: f.page, file: dest })
+      done += 1
+      if (onProgress) onProgress(done)
+    }
+    try { fs.rmdirSync(bucketDir) } catch {}
+  }))
+
+  // 按页号排序
+  allFiles.sort((a, b) => a.page - b.page)
+  return allFiles
+}
+
+/** 读 PNG 宽高（不依赖额外库：从 PNG 头解析）。失败返回 { width: 0, height: 0 } */
+export async function imageDimensions(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    const buf = Buffer.alloc(24)
+    fs.readSync(fd, buf, 0, 24, 0)
+    fs.closeSync(fd)
+    // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+    const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+    for (let i = 0; i < 8; i++) if (buf[i] !== sig[i]) return { width: 0, height: 0 }
+    // IHDR width @ byte 16, height @ byte 20 (big endian)
+    const width = buf.readUInt32BE(16)
+    const height = buf.readUInt32BE(20)
+    return { width, height }
+  } catch {
+    return { width: 0, height: 0 }
+  }
+}
+
+/** 安全取文件大小；不存在返回 0。 */
+export function fileSize(filePath) {
+  try {
+    return fs.statSync(filePath).size
+  } catch {
+    return 0
+  }
+}

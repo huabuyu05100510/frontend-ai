@@ -1,0 +1,44 @@
+/* ─── 标注 UI（Shadow DOM 内 CSS） ─────────────────────────────────
+   Agent 3 — 标注功能
+   Shadow DOM 隔离：所有样式注入在 :host / 局部选择器内，绝不污染页面
+   动效用 transform / opacity（不触发 reflow）
+   模型：claude-sonnet-4-6 (MiniMax-M3 路由)
+*/
+
+/* 词级 ✏️ 锚点 */
+.xt-anno-pencil-host {
+  position: absolute;
+  z-index: 2147483646;
+  pointer-events: auto;
+}
+.xt-anno-pencil-host > .anchor {
+  position: relative;
+  display: inline-block;
+}
+
+/* 段级 5 星锚点 */
+.xt-anno-star-host {
+  position: absolute;
+  z-index: 2147483646;
+  pointer-events: auto;
+}
+
+/* ─── 动效约束 ─────────────────────────────────────────────────── */
+/* 所有 transition 必须用 transform / opacity / color / background-color */
+/* 不允许 top / left / width / height 触发 reflow */
+
+@keyframes xt-anno-fadein {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes xt-anno-fadeout {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-2px); }
+}
+
+@keyframes xt-anno-shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}

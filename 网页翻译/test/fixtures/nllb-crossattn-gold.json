@@ -1,0 +1,97 @@
+{
+  "_comment": "Phase 6 Route C 金标准（NLLB-200-distilled-600M 输出）。索引基于 trimSpecialTokens 后的有效 token 序列。",
+  "source": "test/fixtures/nllb-crossattn-L3H12.json",
+  "cases": [
+    {
+      "src": "The quick brown fox jumps over the lazy dog",
+      "gen_tgt": "快速的棕狐跳过惰的狗",
+      "note": "BPE 子词：bro+wn/brown=2, fo+x/fox=4, jump+s=6, la+zy/lazy=10",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 1 },
+        { "tgtIdx": 1, "srcIdx": 1 },
+        { "tgtIdx": 3, "srcIdx": 2 },
+        { "tgtIdx": 4, "srcIdx": 4 },
+        { "tgtIdx": 5, "srcIdx": 6 },
+        { "tgtIdx": 6, "srcIdx": 8 },
+        { "tgtIdx": 7, "srcIdx": 10 },
+        { "tgtIdx": 9, "srcIdx": 12 }
+      ]
+    },
+    {
+      "src": "I love you",
+      "gen_tgt": "我爱你.",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 1 },
+        { "tgtIdx": 2, "srcIdx": 2 }
+      ]
+    },
+    {
+      "src": "Hello world",
+      "gen_tgt": "你好,世界",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 0 },
+        { "tgtIdx": 3, "srcIdx": 1 }
+      ]
+    },
+    {
+      "src": "The cat is sleeping",
+      "gen_tgt": "猫正在睡觉",
+      "note": "sleep+ing → sleep=3, ing=4",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 1 },
+        { "tgtIdx": 1, "srcIdx": 2 },
+        { "tgtIdx": 2, "srcIdx": 3 },
+        { "tgtIdx": 3, "srcIdx": 3 }
+      ]
+    },
+    {
+      "src": "Open the door",
+      "gen_tgt": "开门",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 2 }
+      ]
+    },
+    {
+      "src": "Neural networks are powerful",
+      "gen_tgt": "神经网络是强大的",
+      "note": "Ne+ural → Neural=0",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 0 },
+        { "tgtIdx": 2, "srcIdx": 2 },
+        { "tgtIdx": 3, "srcIdx": 3 },
+        { "tgtIdx": 4, "srcIdx": 4 },
+        { "tgtIdx": 5, "srcIdx": 4 }
+      ]
+    },
+    {
+      "src": "Machine learning models require large datasets",
+      "gen_tgt": "机器学习模型需要大量的数据集",
+      "note": "datas+ets → datas=5, ets=6",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 0 },
+        { "tgtIdx": 1, "srcIdx": 0 },
+        { "tgtIdx": 2, "srcIdx": 1 },
+        { "tgtIdx": 3, "srcIdx": 2 },
+        { "tgtIdx": 4, "srcIdx": 3 },
+        { "tgtIdx": 5, "srcIdx": 4 },
+        { "tgtIdx": 7, "srcIdx": 5 },
+        { "tgtIdx": 8, "srcIdx": 6 }
+      ]
+    },
+    {
+      "src": "The weather is nice today",
+      "gen_tgt": "今天天气很好",
+      "alignments": [
+        { "tgtIdx": 0, "srcIdx": 4 },
+        { "tgtIdx": 1, "srcIdx": 4 },
+        { "tgtIdx": 2, "srcIdx": 1 },
+        { "tgtIdx": 3, "srcIdx": 1 },
+        { "tgtIdx": 5, "srcIdx": 3 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+ office-preview-app/server/src/pdf-rasterize.mjs    | 265 +++++++++++-
+ .../server/test/pdf-rasterize.test.mjs             | 352 +++++++++++++++
+ .../web/src/components/PerfPanel.tsx               |   3 +
+ office-preview-app/web/src/perf.ts                 |  13 +-
+ .../web/src/previewers/PdfImagesPreview.tsx        | 283 ++++++++++++
+ office-preview-app/web/src/styles.css              |  53 +++
+ .../web/test/PdfImagesPreview.test.tsx             | 473 +++++++++++++++++++++
+ 7 files changed, 1421 insertions(+), 21 deletions(-)

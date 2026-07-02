@@ -1,0 +1,12 @@
+{
+  "name": "@portfolio/iframe-demo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite --port 3001 --host",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6.4.3"
+  }
+}

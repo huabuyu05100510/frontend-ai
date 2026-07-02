@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trinity Transpiler</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1e1e1e;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .header h1 {
+      font-size: 16px;
+      color: #fff;
+      font-weight: 600;
+    }
+    .header .version {
+      font-size: 10px;
+      color: #888;
+      background: #333;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+    }
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 10px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      transform: translateY(-1px);
+    }
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+    .btn-danger:hover { background: #b91c1c; }
+    .info {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 11px;
+      color: #888;
+      line-height: 1.6;
+      margin-top: 12px;
+    }
+    .info strong { color: #3b82f6; }
+    .shortcut {
+      background: #333;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Trinity Transpiler <span class="version">v1.0</span></h1>
+  </div>
+
+  <button class="btn btn-primary" id="btnShow">Show Skeleton</button>
+  <button class="btn btn-danger" id="btnHide">Hide Skeleton</button>
+
+  <div class="info">
+    <strong>Usage:</strong><br>
+    1. Navigate to any page<br>
+    2. Click <strong>Show Skeleton</strong><br>
+    3. The page will display skeleton animation<br>
+    4. Click <strong>×</strong> on skeleton to close
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

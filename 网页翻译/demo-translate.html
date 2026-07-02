@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>SideMT — 实时翻译 + 词级对齐 (Phase 7 云端 NMT)</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e;
+    --accent: #58a6ff; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    --hl-src: rgba(88, 166, 255, 0.45);
+    --hl-tgt: rgba(63, 185, 80, 0.45);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 96px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h1 .tag { font-size: 13px; color: var(--muted); font-weight: normal; margin-left: 8px; }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 13px; }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 24px; margin-bottom: 16px;
+  }
+
+  .input-row {
+    display: flex; gap: 12px; align-items: stretch;
+  }
+  textarea {
+    flex: 1; min-height: 70px; padding: 12px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font: inherit; resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 0 24px; background: var(--accent); color: #0d1117;
+    border: none; border-radius: 8px; font-weight: 600; font-size: 14px;
+    cursor: pointer; transition: opacity 0.15s, transform 0.1s;
+  }
+  button:hover { opacity: 0.9; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: 0.5; cursor: wait; }
+
+  .meta {
+    margin-top: 12px; color: var(--muted); font-size: 12px;
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .meta b { color: var(--text); font-weight: 500; }
+  .meta .pill {
+    padding: 2px 10px; background: rgba(255,255,255,0.06);
+    border-radius: 999px; border: 1px solid var(--border);
+  }
+
+  .line { margin: 14px 0; }
+  .line-label {
+    display: inline-block; width: 56px; color: var(--muted); font-size: 12px;
+    vertical-align: top; padding-top: 6px;
+  }
+  .tokens { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 70px); }
+  .tok {
+    padding: 4px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid transparent;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s, transform 0.12s, opacity 0.12s;
+    user-select: none; position: relative;
+  }
+  .tok:hover { background: rgba(255,255,255,0.10); transform: translateY(-1px); }
+  .tok.special { opacity: 0.25; cursor: default; font-size: 11px; }
+  .tok.special:hover { background: rgba(255,255,255,0.04); transform: none; }
+  .tok.src.hl { background: var(--hl-src); border-color: var(--accent); }
+  .tok.tgt.hl { background: var(--hl-tgt); border-color: var(--good); }
+
+  .placeholder { color: var(--muted); font-style: italic; padding: 20px 0; }
+  .loading {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: -2px; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .legend {
+    margin-top: 24px; padding: 14px 18px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13px; color: var(--muted);
+  }
+  .legend .swatch {
+    display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+    vertical-align: middle; margin-right: 6px; margin-left: 14px;
+  }
+
+  .heatmap-row {
+    margin-top: 16px; font-size: 11px; color: var(--muted);
+  }
+  details summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>SideMT <span class="tag">云端 NMT + Cross-Attention 对齐 · Phase 7 实时 Demo</span></h1>
+  <p class="subtitle">
+    NLLB-200-distilled-600M · cross-attn L0H15 alignment head · hover 任一词看双向高亮 + 置信度
+  </p>
+
+  <div class="panel">
+    <div class="input-row">
+      <textarea id="src-input" placeholder="输入英文...">The quick brown fox jumps over the lazy dog</textarea>
+      <button id="translate-btn">翻译</button>
+    </div>
+    <div class="meta" id="meta"></div>
+  </div>
+
+  <div class="panel" id="result-panel" style="display:none">
+    <div class="line">
+      <span class="line-label">EN</span>
+      <span class="tokens" data-side="src" id="src-tokens"></span>
+    </div>
+    <div class="line">
+      <span class="line-label">ZH</span>
+      <span class="tokens" data-side="tgt" id="tgt-tokens"></span>
+    </div>
+    <details class="heatmap-row">
+      <summary>对齐热力图原始数据</summary>
+      <pre id="raw-data" style="overflow:auto;max-height:200px"></pre>
+    </details>
+  </div>
+
+  <div class="legend">
+    <span class="swatch" style="background:var(--hl-src)"></span>原文 token (hover)
+    <span class="swatch" style="background:var(--hl-tgt)"></span>译文 token (hover)
+    <span style="margin-left:14px">透明度 = attention 置信度（&lt; 0.1 隐藏）</span>
+    <span style="margin-left:14px">多对一支持（hover "我爱你" 高亮全部相关 src）</span>
+  </div>
+
+<script>
+const API = 'http://localhost:8788';
+const THRESHOLD = 0.1;
+// 与 lib/marian-crossattn-aligner.mjs isSpecialToken 一致
+function isSpecialToken(t) {
+  if (!t) return true;
+  t = t.trim();
+  if (!t || ['</s>','<pad>','<s>','<unk>','<mask>'].includes(t)) return true;
+  if (/^>>[a-z]+<<$/i.test(t)) return true;
+  if (/^[a-z]{3}_[A-Z][a-z]{3}$/.test(t)) return true;  // eng_Latn / zho_Hans
+  return false;
+}
+
+// 把 model.generate 的 crossAttn[tgt_len][src_len] 转成对齐对
+function align(crossAttn, srcTokens, tgtTokens) {
+  // 找 valid src/tgt idx
+  const srcValid = srcTokens.map((t, i) => isSpecialToken(t) ? -1 : i).filter(i => i >= 0);
+  const tgtValid = tgtTokens.map((t, i) => isSpecialToken(t) ? -1 : i).filter(i => i >= 0);
+
+  const pairs = [];  // forward: 每 tgt argmax src，过 threshold
+  for (const t of tgtValid) {
+    let bestS = srcValid[0], bestV = -Infinity;
+    for (const s of srcValid) {
+      const v = crossAttn[t]?.[s] ?? 0;
+      if (v > bestV) { bestV = v; bestS = s; }
+    }
+    if (bestV >= THRESHOLD) pairs.push({ tgtIdx: t, srcIdx: bestS, score: bestV });
+  }
+  return { pairs, srcValid, tgtValid };
+}
+
+const $in = document.getElementById('src-input');
+const $btn = document.getElementById('translate-btn');
+const $meta = document.getElementById('meta');
+const $panel = document.getElementById('result-panel');
+const $src = document.getElementById('src-tokens');
+const $tgt = document.getElementById('tgt-tokens');
+const $raw = document.getElementById('raw-data');
+
+let lastAlign = null;  // { tgt2src: Map<srcIdx, [tgtIdx]>, src2tgt: Map, scores }
+
+async function doTranslate() {
+  const src = $in.value.trim();
+  if (!src) return;
+  $btn.disabled = true;
+  $meta.innerHTML = '<span class="loading"></span> 翻译中（CPU 推理约 2-8s）...';
+  $panel.style.display = 'none';
+  const t0 = performance.now();
+  try {
+    const res = await fetch(API + '/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src, src_lang: 'eng_Latn', tgt_lang: 'zho_Hans' }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    render(data, performance.now() - t0);
+  } catch (e) {
+    $meta.innerHTML = `<span style="color:var(--bad)">✗ ${e.message}</span> · 请确认 NMT 服务在 ${API} 运行`;
+  } finally {
+    $btn.disabled = false;
+  }
+}
+
+function render(data, elapsedMs) {
+  const { tgt, srcTokens, tgtTokens, crossAttn, latencyMs, meta } = data;
+
+  $meta.innerHTML = `
+    <span class="pill">译文：<b>${tgt}</b></span>
+    <span class="pill">服务端 ${latencyMs} ms</span>
+    <span class="pill">端到端 ${Math.round(elapsedMs)} ms</span>
+    <span class="pill">src ${meta.srcLen} tok / tgt ${meta.tgtLen} tok</span>
+    <span class="pill">${meta.model} · L${meta.layer}H${meta.head}</span>
+  `;
+
+  const { pairs, srcValid, tgtValid } = align(crossAttn, srcTokens, tgtTokens);
+
+  // 反向索引
+  const src2tgt = new Map();
+  const tgt2src = new Map();
+  for (const p of pairs) {
+    if (!src2tgt.has(p.srcIdx)) src2tgt.set(p.srcIdx, []);
+    src2tgt.get(p.srcIdx).push({ tgtIdx: p.tgtIdx, score: p.score });
+    if (!tgt2src.has(p.tgtIdx)) tgt2src.set(p.tgtIdx, []);
+    tgt2src.get(p.tgtIdx).push({ srcIdx: p.srcIdx, score: p.score });
+  }
+  lastAlign = { src2tgt, tgt2src };
+
+  // 渲染 src tokens（特殊 token 半透明，正常 token 显示）
+  $src.innerHTML = '';
+  srcTokens.forEach((tok, i) => {
+    const el = document.createElement('span');
+    el.className = 'tok src';
+    el.dataset.idx = i;
+    el.textContent = tok === '' ? '∅' : tok;
+    if (isSpecialToken(tok)) {
+      el.classList.add('special');
+    } else {
+      el.addEventListener('mouseenter', () => onHover('src', i));
+    }
+    $src.appendChild(el);
+  });
+
+  // 渲染 tgt tokens
+  $tgt.innerHTML = '';
+  tgtTokens.forEach((tok, i) => {
+    const el = document.createElement('span');
+    el.className = 'tok tgt';
+    el.dataset.idx = i;
+    el.textContent = tok === '' ? '∅' : tok;
+    if (isSpecialToken(tok)) {
+      el.classList.add('special');
+    } else {
+      el.addEventListener('mouseenter', () => onHover('tgt', i));
+    }
+    $tgt.appendChild(el);
+  });
+
+  // 原始数据
+  $raw.textContent = JSON.stringify({ pairs, srcValid, tgtValid }, null, 2);
+
+  $panel.style.display = 'block';
+
+  // hover 处理：双侧高亮 + 置信度
+  $panel.addEventListener('mouseleave', clearHl, { once: true });
+}
+
+function onHover(side, idx) {
+  clearHl();
+  if (side === 'src') {
+    document.querySelector(`.tok.src[data-idx="${idx}"]`)?.classList.add('hl');
+    const tgts = lastAlign.src2tgt.get(idx) || [];
+    tgts.forEach(({ tgtIdx, score }) => {
+      const el = document.querySelector(`.tok.tgt[data-idx="${tgtIdx}"]`);
+      if (el) {
+        el.classList.add('hl');
+        el.style.opacity = Math.max(0.35, Math.min(1, score * 1.3));
+      }
+    });
+  } else {
+    document.querySelector(`.tok.tgt[data-idx="${idx}"]`)?.classList.add('hl');
+    const srcs = lastAlign.tgt2src.get(idx) || [];
+    srcs.forEach(({ srcIdx, score }) => {
+      const el = document.querySelector(`.tok.src[data-idx="${srcIdx}"]`);
+      if (el) {
+        el.classList.add('hl');
+        el.style.opacity = Math.max(0.35, Math.min(1, score * 1.3));
+      }
+    });
+  }
+}
+
+function clearHl() {
+  document.querySelectorAll('.tok.hl').forEach(el => {
+    el.classList.remove('hl');
+    el.style.opacity = '';
+  });
+}
+
+$btn.addEventListener('click', doTranslate);
+$in.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') doTranslate();
+});
+
+// 启动自动跑一次
+doTranslate();
+</script>
+</body>
+</html>

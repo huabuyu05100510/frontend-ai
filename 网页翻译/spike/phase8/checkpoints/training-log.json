@@ -1,0 +1,42 @@
+{
+  "config": {
+    "model": "facebook/nllb-200-distilled-600M",
+    "head": {
+      "layer": 0,
+      "head": 15
+    },
+    "epochs": 2,
+    "batch_size": 8,
+    "lr": 1e-05,
+    "dry_run": true,
+    "data": "./fixtures/annos.jsonl",
+    "baseline_f1": 0.851
+  },
+  "epochs": [
+    {
+      "epoch_batches": 3,
+      "avg_loss": 0.3611111111111111,
+      "dry_run": true,
+      "epoch": 1,
+      "wall_time_s": 0.0,
+      "benchmark_f1": 1.0
+    },
+    {
+      "epoch_batches": 3,
+      "avg_loss": 0.3611111111111111,
+      "dry_run": true,
+      "epoch": 2,
+      "wall_time_s": 0.0,
+      "benchmark_f1": 1.0
+    }
+  ],
+  "best_f1": 1.0,
+  "data_stats": {
+    "total_raw": 85,
+    "total_align_fix": 85,
+    "total_examples": 17,
+    "unique_urls": 6,
+    "unique_lang_pairs": 1,
+    "source_file": "fixtures/annos.jsonl"
+  }
+}

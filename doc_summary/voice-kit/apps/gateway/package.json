@@ -1,0 +1,21 @@
+{
+  "name": "@voice-kit/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup src/index.ts --format esm --external ws",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@voice-kit/core-types": "workspace:*",
+    "@voice-kit/provider-doubao": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "@types/node": "^20.12.0"
+  }
+}

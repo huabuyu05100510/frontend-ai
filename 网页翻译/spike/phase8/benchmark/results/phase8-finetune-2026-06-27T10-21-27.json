@@ -1,0 +1,90 @@
+{
+  "per_case": [
+    {
+      "case": "The quick brown fox jumps over the lazy dog",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 8,
+      "fp": 0,
+      "fn": 0
+    },
+    {
+      "case": "I love you",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 3,
+      "fp": 0,
+      "fn": 0
+    },
+    {
+      "case": "Hello world",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 3,
+      "fp": 0,
+      "fn": 0
+    },
+    {
+      "case": "The cat is sleeping",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 4,
+      "fp": 0,
+      "fn": 0
+    },
+    {
+      "case": "Open the door",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 2,
+      "fp": 0,
+      "fn": 0
+    },
+    {
+      "case": "Neural networks are powerful",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 6,
+      "fp": 0,
+      "fn": 0
+    },
+    {
+      "case": "Machine learning models require large datasets",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 8,
+      "fp": 0,
+      "fn": 0
+    },
+    {
+      "case": "The weather is nice today",
+      "p": 1.0,
+      "r": 1.0,
+      "f1": 1.0,
+      "tp": 5,
+      "fp": 0,
+      "fn": 0
+    }
+  ],
+  "macro_f1": 1.0,
+  "micro_f1": 1.0,
+  "label": "phase8-finetune-dryrun-pred=gold",
+  "baseline": 0.851,
+  "compare": {
+    "new_f1": 1.0,
+    "baseline_f1": 0.851,
+    "delta": 0.14900000000000002,
+    "threshold": 0.02,
+    "improved": true,
+    "regression": false,
+    "neutral": false
+  },
+  "timestamp": 1782526887
+}

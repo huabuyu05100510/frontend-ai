@@ -1,0 +1,40 @@
+export default class generateSkeleton {
+    private rootPositionInfo;
+    private isInterrupted;
+    private nodeQueue;
+    private minW;
+    private minH;
+    private minGapW;
+    private minGapH;
+    private defaultColor;
+    private borderRadius;
+    private boxes;
+    private bgs;
+    private borders;
+    private id?;
+    private taskId?;
+    constructor(props: {
+        root?: HTMLElement;
+        minW?: number;
+        minH?: number;
+        minGapW?: number;
+        minGapH?: number;
+        defaultColor?: string;
+        borderRadius?: string;
+        id?: string;
+    });
+    private isBackgroundSet;
+    private isImgBgSet;
+    private getIsVisible;
+    private hasBorder;
+    private getIsInEnumableTags;
+    private getPercentPositionInfo;
+    private getPositionStyles;
+    private getPositionInParent;
+    private createDiv;
+    private addBgsAndBorder;
+    private performTraverseNode;
+    performWorkUnit(): string;
+    saveSke(): string;
+    cancelTask(): void;
+}

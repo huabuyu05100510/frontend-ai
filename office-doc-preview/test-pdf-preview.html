@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PDF预览测试</title>
+    <style>
+        body { margin: 20px; font-family: Arial; }
+        .status { padding: 10px; background: #f0f0f0; margin: 10px 0; }
+        .error { background: #ffe0e0; }
+        .success { background: #e0ffe0; }
+        iframe { width: 100%; height: 600px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>Office文档预览 - PDF测试</h1>
+
+    <div class="status">
+        <h2>服务状态</h2>
+        <div id="backend-status">后端API: 测试中...</div>
+        <div id="frontend-status">前端服务: 测试中...</div>
+    </div>
+
+    <div class="status">
+        <h2>PDF文件测试</h2>
+        <div>蘑菇书.pdf (164MB): <a href="http://localhost:5180/api/files/t_mql46ywz96327c06?as=original" target="_blank">直接下载</a></div>
+        <div>小PDF (400KB): <a href="http://localhost:5180/api/files/t_mql46z23fa7e3df8?as=original" target="_blank">直接下载</a></div>
+    </div>
+
+    <div class="status">
+        <h2>浏览器预览测试</h2>
+        <p>小PDF预览（应该很快加载）：</p>
+        <iframe src="http://localhost:5180/api/files/t_mql46z23fa7e3df8?as=original"></iframe>
+    </div>
+
+    <div class="status">
+        <h2>完整应用访问</h2>
+        <p><a href="http://localhost:5188/" target="_blank">打开完整应用 (localhost:5188)</a></p>
+        <p>应该能看到：</p>
+        <ul>
+            <li>任务列表（包含蘑菇书.pdf等8个文件）</li>
+            <li>点击任务卡片可预览</li>
+            <li>PDF预览应该正常显示（小PDF快，大PDF可能需要等待）</li>
+        </ul>
+    </div>
+
+    <script>
+        // 测试后端API
+        fetch('http://localhost:5180/api/health')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('backend-status').innerHTML =
+                    `后端API: ✅ 正常 (${JSON.stringify(data)})`;
+                document.getElementById('backend-status').className = 'status success';
+            })
+            .catch(err => {
+                document.getElementById('backend-status').innerHTML =
+                    `后端API: ❌ 错误 (${err})`;
+                document.getElementById('backend-status').className = 'status error';
+            });
+
+        // 测试前端服务
+        fetch('http://localhost:5188/')
+            .then(r => r.text())
+            .then(html => {
+                document.getElementById('frontend-status').innerHTML =
+                    `前端服务: ✅ 正常 (返回HTML页面)`;
+                document.getElementById('frontend-status').className = 'status success';
+            })
+            .catch(err => {
+                document.getElementById('frontend-status').innerHTML =
+                    `前端服务: ❌ 错误 (${err})`;
+                document.getElementById('frontend-status').className = 'status error';
+            });
+    </script>
+</body>
+</html>

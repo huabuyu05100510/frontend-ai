@@ -1,0 +1,15 @@
+ office-preview-app/server/src/router.mjs           |  61 +++++
+ office-preview-app/server/test/router.test.mjs     |  79 ++++++-
+ office-preview-app/web/src/App.tsx                 |  14 +-
+ office-preview-app/web/src/components/TaskCard.tsx |  15 +-
+ office-preview-app/web/src/store.ts                |  45 +++-
+ office-preview-app/web/src/styles.css              | 253 +++++++++++++++++++++
+ office-preview-app/web/src/types.ts                |  39 ++++
+ 7 files changed, 498 insertions(+), 8 deletions(-)
+---
+     180 office-preview-app/server/src/diff.mjs
+     239 office-preview-app/server/test/diff.test.mjs
+     114 office-preview-app/web/e2e/inspect-compare.spec.ts
+     289 office-preview-app/web/src/inspect/InspectCompareModal.tsx
+     350 office-preview-app/web/test/InspectCompareModal.test.tsx
+    1172 total

@@ -1,0 +1,30 @@
+{
+  "name": "skeleton-unified",
+  "private": true,
+  "version": "1.0.0",
+  "description": "统一骨架屏生成算法 - 支持 React/H5、React Native、Taro/微信小程序",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^19.2.3",
+    "@vitest/browser": "^2.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "happy-dom": "^20.10.6",
+    "jsdom": "^25.0.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

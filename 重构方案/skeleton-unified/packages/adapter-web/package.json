@@ -1,0 +1,27 @@
+{
+  "name": "@skeleton/adapter-web",
+  "version": "1.0.0",
+  "description": "骨架屏浏览器 DOM 适配器",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@skeleton/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "peerDependencies": {
+    "@skeleton/core": "workspace:*"
+  }
+}

@@ -1,0 +1,11 @@
+ .claude/worktrees/wf_24d7ff97-b6a-1                |   0
+ .claude/worktrees/wf_24d7ff97-b6a-2                |   0
+ office-preview-app/server/src/converter.mjs        |   9 +-
+ office-preview-app/server/src/pdf-rasterize.mjs    | 110 ++++++------
+ office-preview-app/server/src/router.mjs           |  47 ++++-
+ .../server/test/pdf-rasterize.test.mjs             | 144 ++++++++++++---
+ .../web/src/previewers/PdfImagesPreview.tsx        |  58 ++++--
+ office-preview-app/web/src/styles.css              |  10 +-
+ .../web/test/PdfImagesPreview.test.tsx             | 197 +++++++++++++++++++++
+ office-preview-app/web/tsconfig.tsbuildinfo        |   2 +-
+ 10 files changed, 478 insertions(+), 99 deletions(-)

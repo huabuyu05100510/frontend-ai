@@ -1,0 +1,34 @@
+{
+    "name": "@miaoma-aiflow/plugin-runtime",
+    "private": true,
+    "license": "MIAOMAEDU",
+    "version": "1.0.0",
+    "keywords": [
+        "miaoma",
+        "aiflow",
+        "plugin",
+        "runtime",
+        "sandbox"
+    ],
+    "description": "妙码 AI Flow 插件运行时 - 加载器与沙箱",
+    "type": "module",
+    "source": "src/index.ts",
+    "main": "build/cjs/index.cjs",
+    "module": "build/esm/index.js",
+    "types": "build/esm/index.d.ts",
+    "scripts": {
+        "build:watch": "tsup --watch",
+        "build": "tsup",
+        "clean": "rimraf build",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "dependencies": {
+        "@miaoma-aiflow/ai-engine": "workspace:*",
+        "@miaoma-aiflow/plugin-core": "workspace:*"
+    },
+    "devDependencies": {
+        "vitest": "^4.0.16"
+    }
+}

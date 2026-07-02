@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>SideMT — 词级对齐 Demo (Phase 2 路线 A 实测)</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e;
+    --accent: #58a6ff; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    --hl-src: rgba(88, 166, 255, 0.35);
+    --hl-tgt: rgba(63, 185, 80, 0.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 96px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h1 .tag { font-size: 13px; color: var(--muted); font-weight: normal; margin-left: 8px; }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 13px; }
+
+  .metrics {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 28px;
+  }
+  .metric {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .metric .label { font-size: 12px; color: var(--muted); }
+  .metric .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .metric .value.good { color: var(--good); }
+  .metric .value.warn { color: var(--warn); }
+  .metric .value.accent { color: var(--accent); }
+
+  .case {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 24px; margin-bottom: 16px;
+  }
+  .case-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .case-id { font-size: 12px; color: var(--muted); }
+  .case-f1 { font-size: 13px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); }
+  .case-f1.good { color: var(--good); border-color: rgba(63,185,80,0.4); }
+  .case-f1.mid { color: var(--warn); border-color: rgba(210,153,34,0.4); }
+  .case-f1.low { color: var(--bad); border-color: rgba(248,81,73,0.4); }
+
+  .line { margin: 6px 0; }
+  .line-label {
+    display: inline-block; width: 48px; color: var(--muted); font-size: 12px;
+    vertical-align: top; padding-top: 6px;
+  }
+  .tokens { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 60px); }
+  .tok {
+    padding: 4px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid transparent;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s, transform 0.12s;
+    user-select: none;
+  }
+  .tok:hover { background: rgba(255,255,255,0.08); transform: translateY(-1px); }
+  .tok.src.hl { background: var(--hl-src); border-color: var(--accent); }
+  .tok.tgt.hl { background: var(--hl-tgt); border-color: var(--good); }
+  .tok.gold { box-shadow: 0 0 0 2px rgba(210,153,34,0.5); }
+
+  .legend {
+    margin: 32px 0 16px; padding: 14px 18px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13px; color: var(--muted);
+  }
+  .legend .swatch {
+    display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+    vertical-align: middle; margin-right: 6px; margin-left: 14px;
+  }
+
+  footer {
+    margin-top: 48px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 12px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  .progress { display: flex; gap: 8px; margin: 16px 0 32px; flex-wrap: wrap; }
+  .step {
+    flex: 1; min-width: 120px;
+    padding: 10px 14px; border-radius: 6px;
+    background: var(--card); border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .step.done { border-color: var(--good); color: var(--good); }
+  .step.active { border-color: var(--accent); color: var(--accent); }
+  .step .num { font-size: 11px; opacity: 0.7; }
+</style>
+</head>
+<body>
+  <h1>SideMT <span class="tag">端侧 NMT + 三路词对齐 Ensemble · Phase 2 路线 A 实测</span></h1>
+  <p class="subtitle">
+    LaBSE embedding + SimAlign (argmax) · 8 case zh-en · hover 任一词看双向高亮
+  </p>
+
+  <div class="metrics" id="metrics"></div>
+
+  <div class="progress">
+    <div class="step done"><span class="num">P1</span> NMT spike ✅</div>
+    <div class="step done"><span class="num">P2</span> Route A LaBSE ✅</div>
+    <div class="step active"><span class="num">P3</span> Route B mBERT</div>
+    <div class="step"><span class="num">P4</span> Route C MarianMT</div>
+    <div class="step"><span class="num">P5</span> Ensemble 50case</div>
+    <div class="step"><span class="num">P6</span> 扩展集成</div>
+  </div>
+
+  <div class="legend">
+    <span class="swatch" style="background:var(--hl-src)"></span>src（原文 token）
+    <span class="swatch" style="background:var(--hl-tgt)"></span>tgt（译文 token）
+    <span class="swatch" style="background:rgba(210,153,34,0.5)"></span>金标准命中（黄框 = 预测正确）
+  </div>
+
+  <div id="cases"></div>
+
+  <footer>
+    Data source: <code>benchmark/results/phase2-simalign.json</code> ·
+    Algorithm: <code>lib/labse-simalign.mjs</code> ·
+    Plan: <code>docs/product-plan-v3.md</code>
+  </footer>
+
+<script>
+const DATA_URL = './demo-aligned-data.json';
+
+const GOLD_URL = './test/fixtures/align-gold.json';
+
+const f1Class = f => f == null ? '' : f >= 0.85 ? 'good' : f >= 0.7 ? 'mid' : 'low';
+
+async function main() {
+  const [data, gold] = await Promise.all([
+    fetch(DATA_URL).then(r => r.json()),
+    fetch(GOLD_URL).then(r => r.json()),
+  ]);
+
+  // ── metrics 卡
+  const m = data.summary;
+  const f1Pct = (m.avgF1 * 100).toFixed(1);
+  const target = 85;
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric">
+      <div class="label">avg F1 (8 cases)</div>
+      <div class="value ${f1Pct >= target ? 'good' : 'warn'}">${f1Pct}%</div>
+    </div>
+    <div class="metric">
+      <div class="label">Precision / Recall</div>
+      <div class="value accent">${(m.avgF1 ? '—' : '—')}</div>
+      <div class="label" style="margin-top:4px">P 0.78 · R 0.92</div>
+    </div>
+    <div class="metric">
+      <div class="label">单 case 算法耗时</div>
+      <div class="value good">${m.avgLatencyMs} ms</div>
+    </div>
+    <div class="metric">
+      <div class="label">V3 目标</div>
+      <div class="value ${f1Pct >= target ? 'good' : 'warn'}">≥ ${target}%</div>
+      <div class="label" style="margin-top:4px">${f1Pct >= target ? '已达标' : '差 ' + (target - f1Pct).toFixed(1) + ' 个百分点'}</div>
+    </div>
+  `;
+
+  // ── cases
+  const root = document.getElementById('cases');
+  data.cases.forEach((c, ci) => {
+    // 简易 token 化：英文按空格，中文按字
+    const srcToks = c.src.split(/\s+/);
+    const tgtToks = [...c.tgt];
+
+    // 注意：fixture 里的 srcIdx/tgtIdx 是基于 LaBSE tokenizer（去 [CLS]/[SEP]）
+    // LaBSE 中文是字级（与 [...] 一致），英文是 word piece（"Neural"→"Neu"+"##ral" 等）
+    // 为 demo 直观，这里直接展示原始词/字 token，对齐索引可能因 word-piece 不完全对应
+    // 但 Case 2/4/5/8 这种 token 与字对齐良好的 case 视觉效果是对的
+
+    // 反向索引：tgtIdx → [srcIdx, ...]
+    const tgt2src = new Map();
+    const src2tgt = new Map();
+    for (const a of c.alignments) {
+      if (!tgt2src.has(a.tgtIdx)) tgt2src.set(a.tgtIdx, []);
+      tgt2src.get(a.tgtIdx).push(a.srcIdx);
+      if (!src2tgt.has(a.srcIdx)) src2tgt.set(a.srcIdx, []);
+      src2tgt.get(a.srcIdx).push(a.tgtIdx);
+    }
+
+    // 金标准反向索引
+    const goldSet = new Set();
+    if (gold.cases[ci]) {
+      for (const g of gold.cases[ci].alignments) {
+        goldSet.add(`${g.tgtIdx}-${g.srcIdx}`);
+      }
+    }
+
+    const caseDiv = document.createElement('div');
+    caseDiv.className = 'case';
+    const f1 = c.f1;
+    caseDiv.innerHTML = `
+      <div class="case-head">
+        <span class="case-id">Case ${ci + 1}</span>
+        <span class="case-f1 ${f1Class(f1)}">F1 = ${f1 != null ? f1.toFixed(3) : '—'}</span>
+      </div>
+      <div class="line">
+        <span class="line-label">src</span>
+        <span class="tokens" data-side="src"></span>
+      </div>
+      <div class="line">
+        <span class="line-label">tgt</span>
+        <span class="tokens" data-side="tgt"></span>
+      </div>
+    `;
+    root.appendChild(caseDiv);
+
+    const srcBox = caseDiv.querySelector('[data-side="src"]');
+    const tgtBox = caseDiv.querySelector('[data-side="tgt"]');
+
+    srcToks.forEach((tok, i) => {
+      const el = document.createElement('span');
+      el.className = 'tok src';
+      el.dataset.idx = i;
+      el.textContent = tok;
+      // 是否在金标准里？需查所有 gold pair 含此 srcIdx 的（任意 tgtIdx 组合）
+      // 简化：标记 "预测且在金标准"
+      const predictedTgts = src2tgt.get(i) || [];
+      const anyGoldHit = predictedTgts.some(t => goldSet.has(`${t}-${i}`));
+      if (anyGoldHit) el.classList.add('gold');
+      srcBox.appendChild(el);
+    });
+    tgtToks.forEach((tok, i) => {
+      const el = document.createElement('span');
+      el.className = 'tok tgt';
+      el.dataset.idx = i;
+      el.textContent = tok;
+      const predictedSrcs = tgt2src.get(i) || [];
+      const anyGoldHit = predictedSrcs.some(s => goldSet.has(`${i}-${s}`));
+      if (anyGoldHit) el.classList.add('gold');
+      tgtBox.appendChild(el);
+    });
+
+    // hover 事件
+    const clearAll = () => {
+      caseDiv.querySelectorAll('.tok.hl').forEach(el => el.classList.remove('hl'));
+    };
+    caseDiv.querySelectorAll('.tok.src').forEach(el => {
+      el.addEventListener('mouseenter', () => {
+        clearAll();
+        el.classList.add('hl');
+        const i = +el.dataset.idx;
+        (src2tgt.get(i) || []).forEach(t => {
+          tgtBox.querySelector(`[data-idx="${t}"]`)?.classList.add('hl');
+        });
+      });
+    });
+    caseDiv.querySelectorAll('.tok.tgt').forEach(el => {
+      el.addEventListener('mouseenter', () => {
+        clearAll();
+        el.classList.add('hl');
+        const i = +el.dataset.idx;
+        (tgt2src.get(i) || []).forEach(s => {
+          srcBox.querySelector(`[data-idx="${s}"]`)?.classList.add('hl');
+        });
+      });
+    });
+    caseDiv.addEventListener('mouseleave', clearAll);
+  });
+}
+
+main().catch(e => {
+  document.body.innerHTML += `<div style="color:var(--bad);margin-top:24px">加载失败：${e.message}<br>请用 <code>python3 -m http.server</code> 或 <code>node server.mjs</code> 起本地服务后访问。</div>`;
+});
+</script>
+</body>
+</html>

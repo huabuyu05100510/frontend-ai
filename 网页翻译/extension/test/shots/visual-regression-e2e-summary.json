@@ -1,0 +1,93 @@
+{
+  "timestamp": "2026-06-27T14:11:58.607Z",
+  "total": 8,
+  "passed": 8,
+  "failed": 0,
+  "results": [
+    {
+      "label": "scene-01-flex-nav",
+      "passed": true,
+      "errors": [
+        "console.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "counts": {
+        "count": 6,
+        "display": "block",
+        "flexBasis": "100%"
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-01-flex-nav.png"
+    },
+    {
+      "label": "scene-02-grid-card",
+      "passed": true,
+      "errors": [],
+      "counts": {
+        "count": 7,
+        "hasGridClass": true
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-02-grid-card.png"
+    },
+    {
+      "label": "scene-03-table",
+      "passed": true,
+      "errors": [],
+      "counts": {
+        "count": 6,
+        "display": "block"
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-03-table.png"
+    },
+    {
+      "label": "scene-04-list",
+      "passed": true,
+      "errors": [],
+      "counts": {
+        "count": 6
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-04-list.png"
+    },
+    {
+      "label": "scene-05-rtl",
+      "passed": true,
+      "errors": [],
+      "counts": {
+        "count": 3,
+        "htmlDir": "rtl",
+        "hasRtlClass": true
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-05-rtl.png"
+    },
+    {
+      "label": "scene-06-spa-shadow",
+      "passed": true,
+      "errors": [],
+      "counts": {
+        "lightCount": 1,
+        "totalCount": 1
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-06-spa-shadow.png"
+    },
+    {
+      "label": "scene-07-dark",
+      "passed": true,
+      "errors": [],
+      "counts": {
+        "count": 3,
+        "display": "block"
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-07-dark.png"
+    },
+    {
+      "label": "scene-08-print",
+      "passed": true,
+      "errors": [],
+      "counts": {
+        "tgtCount": 1,
+        "hasToolbar": true,
+        "hasFab": true,
+        "screenDisplay": "block"
+      },
+      "shotPath": "/Users/didi/Downloads/前端AI面试题/网页翻译/extension/test/shots/scene-08-print.png"
+    }
+  ]
+}

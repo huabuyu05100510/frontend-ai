@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head></head>
+<body>
+<div id="trinity-overlay">
+  <div id="trinity-panel">
+    <!-- Header -->
+    <div class="trinity-header">
+      <h1>
+        Trinity Transpiler
+        <span class="badge">v1.0</span>
+      </h1>
+      <div class="trinity-actions">
+        <button class="trinity-btn trinity-btn-secondary" id="btnRefresh">⟳ Refresh</button>
+        <button class="trinity-btn trinity-btn-danger" id="btnClose">✕ Close</button>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="trinity-status">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">Ready</span>
+    </div>
+
+    <!-- Stats -->
+    <div class="trinity-stats">
+      <div class="trinity-stat">
+        <div class="trinity-stat-value" id="statOriginal">0</div>
+        <div class="trinity-stat-label">Original Nodes</div>
+      </div>
+      <div class="trinity-stat">
+        <div class="trinity-stat-value" id="statPruned">0</div>
+        <div class="trinity-stat-label">Pruned Wrappers</div>
+      </div>
+      <div class="trinity-stat">
+        <div class="trinity-stat-value" id="statFinal">0</div>
+        <div class="trinity-stat-label">Final Nodes</div>
+      </div>
+      <div class="trinity-stat">
+        <div class="trinity-stat-value" id="statAnchors">0</div>
+        <div class="trinity-stat-label">Zero-CLS Anchors</div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="trinity-content">
+      <!-- Layer 1 -->
+      <div class="trinity-panel">
+        <div class="trinity-panel-header">
+          <span class="trinity-panel-badge layer-1">L1</span>
+          <span class="trinity-panel-title">Topological Mirroring</span>
+        </div>
+        <div class="trinity-panel-body">
+          <div id="layer1Items">
+            <div class="layer-item">
+              <span class="label">分析中...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layer 2 -->
+      <div class="trinity-panel">
+        <div class="trinity-panel-header">
+          <span class="trinity-panel-badge layer-2">L2</span>
+          <span class="trinity-panel-title">Zero-CLS Anchoring</span>
+        </div>
+        <div class="trinity-panel-body">
+          <div id="layer2Items">
+            <div class="layer-item">
+              <span class="label">分析中...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layer 3: CSS Output -->
+      <div class="trinity-panel">
+        <div class="trinity-panel-header">
+          <span class="trinity-panel-badge layer-3">L3</span>
+          <span class="trinity-panel-title">Style Isomorphism</span>
+        </div>
+        <div class="trinity-tabs">
+          <button class="trinity-tab active" data-tab="css">CSS</button>
+          <button class="trinity-tab" data-tab="dsl">DSL</button>
+          <button class="trinity-tab" data-tab="tree">Tree</button>
+        </div>
+        <div class="trinity-code" id="codeOutput">
+          <span class="comment">/* Click "Transpile" to generate */</span>
+        </div>
+      </div>
+
+      <!-- Layer 3: CLS Demo -->
+      <div class="trinity-panel">
+        <div class="trinity-panel-header">
+          <span class="trinity-panel-badge layer-3">L3</span>
+          <span class="trinity-panel-title">Zero-CLS Comparison</span>
+        </div>
+        <div class="trinity-panel-body">
+          <div class="cls-comparison">
+            <div class="cls-box before">
+              <h4>❌ Without Anchoring</h4>
+              <div class="height-bar">
+                <div class="height-bar-fill" id="barBefore" style="width: 100%"></div>
+              </div>
+              <div class="height-label">Before: 200px</div>
+              <div class="height-bar" style="margin-top: 8px;">
+                <div class="height-bar-fill" id="barBeforeAfter" style="width: 0%"></div>
+              </div>
+              <div class="height-label">After: <span style="color:#ef4444">CLS!</span></div>
+            </div>
+            <div class="cls-box after">
+              <h4>✓ With Zero-CLS</h4>
+              <div class="height-bar">
+                <div class="height-bar-fill" id="barAfter" style="width: 100%"></div>
+              </div>
+              <div class="height-label">Before: 200px</div>
+              <div class="height-bar" style="margin-top: 8px;">
+                <div class="height-bar-fill" id="barAfterAfter" style="width: 100%"></div>
+              </div>
+              <div class="height-label">After: <span style="color:#10b981">Stable!</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

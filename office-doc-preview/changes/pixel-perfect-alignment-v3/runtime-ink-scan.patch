@@ -1,0 +1,364 @@
+diff --git a/office-preview-app/web/src/previewers/PdfImagesPreview.tsx b/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
+new file mode 100644
+index 0000000..ea162e7
+--- /dev/null
++++ b/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
+@@ -0,0 +1,357 @@
++// 服务端栅格化图片预览 + 透明文字覆盖层（方案 B）
++// 设计：
++//   - <img> 作为底层（浏览器原生解码、零 JS 成本）
++//   - <div class="pdf-text-layer"> 用 dangerouslySetInnerHTML 注入服务端 bbox HTML，
++//     文字本身透明（color: transparent），但可选中、可复制、可搜索（user-select: text）
++//   - 文字层懒加载：图片进入视口后才 fetch text URL，避免阻塞首屏
++//   - 文字层根 div 带 data-page-w/h 属性 → 前端以此作为权威页尺寸兜底（兼容老 API 脏数据）
++//   - 每页 wrapper 严格按栅格化 PNG 像素尺寸布局，与文字层 bbox 坐标系 1:1 对齐
++//   - 保留 IntersectionObserver 虚拟滚动、buffer、计数
++//   - 关键修复（窄窗选区对齐）：
++//     1) img 不再用内联 style.width/height: 100% 强制，CSS class 统一管理
++//     2) styles.css 去掉 .pdf-images-page { max-width: 100% }，避免窄窗下 img 被压缩而 wrapper 不变
++//     3) 文字层加载完成后，抽样 5 个 span 与 PNG 实际 ink 像素位置做对比，上报对齐误差到 usePerf
++// 模型：Claude MiniMax-M3（MiniMax）
++import { useEffect, useRef, useState } from 'react'
++import type { Task, PageImage } from '../types'
++import { usePerf } from '../perf'
++
++interface Props {
++  task: Task
++}
++
++const BUFFER_PAGES = 2
++// 文字层缓存：避免重复 fetch 同页 HTML
++// 缓存 value 包含 { html, pageW?, pageH? } —— pageW/pageH 从 data-page-w/h 解析出来
++interface CachedTextLayer {
++  html: string
++  pageW?: number
++  pageH?: number
++}
++const textCache = new Map<number, CachedTextLayer>()
++
++/** 从文字层 HTML 根 div 提取 data-page-w / data-page-h（权威页尺寸） */
++function parseTextLayerDims(html: string): { pageW?: number; pageH?: number } {
++  const m = html.match(/data-page-w="([\d.]+)"\s+data-page-h="([\d.]+)"/)
++  if (!m) return {}
++  return { pageW: parseFloat(m[1]), pageH: parseFloat(m[2]) }
++}
++
++export function PdfImagesPreview({ task }: Props) {
++  const pages: PageImage[] = task.pages || []
++  const containerRef = useRef<HTMLDivElement>(null)
++  const [current, setCurrent] = useState(1)
++  const [visibleSet, setVisibleSet] = useState<Set<number>>(() => new Set(pages.map(p => p.page)))
++  const [textLayers, setTextLayers] = useState<Map<number, CachedTextLayer>>(() => new Map())
++
++  // 性能面板：把当前渲染过的页数同步过去
++  useEffect(() => {
++    usePerf.getState().set({ renderedPages: visibleSet.size })
++  }, [visibleSet])
++
++  // 懒加载文字层：图片 src 已设置后 fetch 该页 text HTML
++  useEffect(() => {
++    if (!pages.length) return
++    const needFetch: number[] = []
++    for (const p of pages) {
++      if (!p.textUrl) continue
++      if (textCache.has(p.page)) {
++        if (!textLayers.has(p.page)) {
++          setTextLayers(prev => {
++            const next = new Map(prev)
++            next.set(p.page, textCache.get(p.page)!)
++            return next
++          })
++        }
++      } else if (!textLayers.has(p.page)) {
++        needFetch.push(p.page)
++      }
++    }
++    if (!needFetch.length) return
++    let cancelled = false
++    ;(async () => {
++      for (const pageNum of needFetch) {
++        const p = pages.find(x => x.page === pageNum)
++        if (!p?.textUrl) continue
++        try {
++          const r = await fetch(p.textUrl, { credentials: 'same-origin' })
++          if (!r.ok) continue
++          const html = await r.text()
++          if (cancelled) return
++          const dims = parseTextLayerDims(html)
++          const cached: CachedTextLayer = { html, ...dims }
++          textCache.set(pageNum, cached)
++          setTextLayers(prev => {
++            const next = new Map(prev)
++            next.set(pageNum, cached)
++            return next
++          })
++        } catch {
++          // 单页失败不阻断其他页
++        }
++      }
++    })()
++    return () => { cancelled = true }
++  }, [pages, textLayers])
++
++  // IntersectionObserver：滚动时只让视口内 + 前后 buffer 页为「活跃」状态
++  useEffect(() => {
++    const root = containerRef.current
++    if (!root) return
++    const io = new IntersectionObserver((entries) => {
++      const next = new Set(visibleSet)
++      let currentPage = current
++      let bestRatio = 0
++      for (const e of entries) {
++        const pageAttr = Number((e.target as HTMLElement).dataset.page)
++        if (e.isIntersecting) {
++          for (let p = Math.max(1, pageAttr - BUFFER_PAGES); p <= Math.min(pages.length, pageAttr + BUFFER_PAGES); p++) {
++            next.add(p)
++          }
++          if (e.intersectionRatio > bestRatio) {
++            bestRatio = e.intersectionRatio
++            currentPage = pageAttr
++          }
++        }
++      }
++      const farPages = new Set<number>()
++      for (const p of next) {
++        if (Math.abs(p - currentPage) <= BUFFER_PAGES + 1) farPages.add(p)
++      }
++      setVisibleSet(farPages)
++      if (currentPage !== current) setCurrent(currentPage)
++    }, { root, rootMargin: '1200px 0px', threshold: [0, 0.01, 0.5] })
++    root.querySelectorAll('[data-page]').forEach(el => io.observe(el))
++    return () => io.disconnect()
++  }, [pages.length])
++
++  // 文字层加载完成后做对齐误差测量（采样法：每页前 5 个 span）
++  // 通过 canvas drawImage + getImageData 找出 PNG 实际深色像素边界，
++  // 与 span 的 left/top/width/height 对比，得到对齐误差。
++  // 上报到 usePerf → PerfPanel 可观测。
++  useEffect(() => {
++    if (!textLayers.size) return
++    const SAMPLE_PER_PAGE = 5
++    const sums: number[] = []
++    let maxErr = 0
++    let samples = 0
++    for (const [page, cached] of textLayers) {
++      const pageEl = document.querySelector(`.pdf-image-page[data-page="${page}"]`) as HTMLElement | null
++      if (!pageEl) continue
++      const img = pageEl.querySelector('img.pdf-images-page') as HTMLImageElement | null
++      if (!img || !img.complete || !img.naturalWidth) continue
++      const spans = pageEl.querySelectorAll('.pdf-text-layer span') as NodeListOf<HTMLElement>
++      if (!spans.length) continue
++      // 用 canvas 读 PNG 实际像素（willReadFrequently 提示浏览器启用 GPU 读取路径，避免性能警告）
++      const canvas = document.createElement('canvas')
++      canvas.width = img.naturalWidth
++      canvas.height = img.naturalHeight
++      const ctx = canvas.getContext('2d', { willReadFrequently: true })
++      if (!ctx) continue
++      try { ctx.drawImage(img, 0, 0) } catch { continue }
++      // img 渲染尺寸 / natural 尺寸 比例（处理 max-width 缩放后的情况）
++      const rW = img.clientWidth / img.naturalWidth
++      const rH = img.clientHeight / img.naturalHeight
++      const picked = Array.from(spans).slice(0, SAMPLE_PER_PAGE)
++      for (const span of picked) {
++        const l = parseFloat(span.style.left) || 0
++        const t = parseFloat(span.style.top) || 0
++        const w = parseFloat(span.style.width) || 0
++        const h = parseFloat(span.style.height) || 0
++        if (w < 4 || h < 4) continue
++        // 转换到 natural 像素坐标
++        const px = Math.max(0, Math.floor(l * rW))
++        const py = Math.max(0, Math.floor(t * rH))
++        const pw = Math.min(canvas.width - px, Math.ceil(w * rW))
++        const ph = Math.min(canvas.height - py, Math.ceil(h * rH))
++        if (pw < 2 || ph < 2) continue
++        try {
++          const data = ctx.getImageData(px, py, pw, ph).data
++          // 找实际深色像素的 y 范围
++          let firstDarkY = -1, lastDarkY = -1, firstDarkX = -1, lastDarkX = -1
++          for (let y = 0; y < ph; y++) {
++            for (let x = 0; x < pw; x++) {
++              const i = (y * pw + x) * 4
++              // 灰度 < 100 视为深色 ink
++              if (data[i] < 100 || data[i + 1] < 100 || data[i + 2] < 100) {
++                if (firstDarkY < 0) firstDarkY = y
++                lastDarkY = y
++                if (firstDarkX < 0 || x < firstDarkX) firstDarkX = x
++                if (x > lastDarkX) lastDarkX = x
++              }
++            }
++          }
++          if (firstDarkY < 0) continue
++          // 误差：实际 ink 顶 vs span 顶（都换算到 natural 像素）
++          const errTop = Math.abs(firstDarkY - 0)
++          const errBottom = Math.abs((ph - 1) - lastDarkY)
++          // span 高度不足 / 超出都会反映在 bottom 误差
++          const totalErr = (errTop + errBottom) / 2
++          sums.push(totalErr)
++          if (totalErr > maxErr) maxErr = totalErr
++          samples++
++        } catch {
++          // getImageData 在跨域 img 上会抛错，跳过
++        }
++      }
++    }
++    if (samples > 0) {
++      const avg = sums.reduce((a, b) => a + b, 0) / sums.length
++      usePerf.getState().set({
++        alignErrorAvg: +avg.toFixed(2),
++        alignErrorMax: +maxErr.toFixed(2),
++        alignSamples: samples
++      })
++    }
++  }, [textLayers])
++
++  // 运行时扫 PNG 算 actualInk 边界（修正 OnlyOffice 渲染 PDF 的 em-box 偏大问题）
++  // pdftotext 给的 word bbox 是 em-box 高度（含 ascender/descender 空区），比字符实际 ink 大很多
++  // → selection 浅蓝按 em 中心画，视觉上比字符中心偏上 9-15px
++  // 修复：逐 span 扫其对应 PNG 区域找实际 ink 上下边界，用 ink 边界覆盖 span top/height
++  // → span box = 字符 ink 范围 → selection 自动对齐字符
++  useEffect(() => {
++    if (!textLayers.size) return
++    let cancelled = false
++    ;(async () => {
++      for (const [page] of textLayers) {
++        if (cancelled) return
++        const pageEl = document.querySelector(`.pdf-image-page[data-page="${page}"]`) as HTMLElement | null
++        if (!pageEl) continue
++        const img = pageEl.querySelector('img.pdf-images-page') as HTMLImageElement | null
++        if (!img || !img.complete || !img.naturalWidth) continue
++        const spans = pageEl.querySelectorAll('.pdf-text-layer span') as NodeListOf<HTMLElement>
++        if (!spans.length) continue
++        const canvas = document.createElement('canvas')
++        canvas.width = img.naturalWidth
++        canvas.height = img.naturalHeight
++        const ctx = canvas.getContext('2d', { willReadFrequently: true })
++        if (!ctx) continue
++        try { ctx.drawImage(img, 0, 0) } catch { continue }
++        const rW = img.clientWidth / img.naturalWidth
++        const rH = img.clientHeight / img.naturalHeight
++        // 逐 span 扫描其 PNG 区域找 ink 边界
++        for (const span of Array.from(spans)) {
++          if (cancelled) return
++          const l = parseFloat(span.style.left) || 0
++          const t = parseFloat(span.style.top) || 0
++          const w = parseFloat(span.style.width) || 0
++          if (w < 4) continue
++          // 转 natural 像素
++          const px = Math.max(0, Math.floor(l * rW))
++          const py = Math.max(0, Math.floor(t * rH))
++          const spanH = parseFloat(span.style.height) || h  // 拿 inline height
++          const pw = Math.min(canvas.width - px, Math.ceil(w * rW))
++          const ph = Math.min(canvas.height - py, Math.ceil(spanH * rH))  // 限制为 span 高度
++          if (pw < 2 || ph < 2) continue
++          try {
++            const data = ctx.getImageData(px, py, pw, ph).data
++            // 找该 span 垂直范围内的 ink 上下边界
++            let firstDarkY = -1, lastDarkY = -1
++            for (let y = 0; y < ph; y++) {
++              let hasDark = false
++              for (let x = 0; x < pw; x += 2) {  // 隔一列加速
++                const i = (y * pw + x) * 4
++                if (data[i] < 100) { hasDark = true; break }
++              }
++              if (hasDark) {
++                if (firstDarkY < 0) firstDarkY = y
++                lastDarkY = y
++              }
++            }
++            if (firstDarkY < 0) continue
++            // ink 边界覆盖：top = py + firstDarkY, height = lastDarkY - firstDarkY + 1
++            const newTopNat = py + firstDarkY
++            const newHNat = lastDarkY - firstDarkY + 1
++            // 转回 CSS 像素
++            const newTop = (newTopNat / rH).toFixed(2)
++            const newH = (newHNat / rH).toFixed(2)
++            // 用 cssText 覆盖 inline style（强制覆盖之前的 em-box top/height）
++            const wCSS = w.toFixed(2)
++            const lCSS = l.toFixed(2)
++            span.style.cssText = `position:absolute;left:${lCSS}px;top:${newTop}px;width:${wCSS}px;height:${newH}px;font-size:${newH}px;line-height:1;white-space:nowrap;overflow:hidden;pointer-events:auto`
++          } catch {
++            // getImageData 跨域失败跳过
++          }
++        }
++      }
++    })()
++    return () => { cancelled = true }
++  }, [textLayers])
++
++  if (!pages.length) {
++    return <div className="center-msg err">无栅格化结果（请切换到 PDF 模式）</div>
++  }
++
++  // 关键：每页必须按自身栅格化 PNG 的真实像素尺寸布局。
++  // 优先级：text-layer data-page-w/h（最权威，文字层 bbox 用的就是这套） >
++  //         API 返回的 p.width/height（兜底） > 默认值
++  // 这样即使 API 返回老任务脏数据（thumb 尺寸），wrapper 也能正确缩放。
++  function pageDims(p: PageImage) {
++    const cached = textLayers.get(p.page)
++    if (cached?.pageW && cached?.pageH) {
++      return { w: cached.pageW, h: cached.pageH }
++    }
++    return { w: p.width || 800, h: p.height || 1130 }
++  }
++  const maxPageWidth = pages.reduce((m, p) => Math.max(m, pageDims(p).w), 0) || undefined
++  const textLoadedCount = textLayers.size
++  const textTotalPages = pages.filter(p => p.textUrl).length
++
++  return (
++    <div className="pdf-images-root" ref={containerRef}>
++      <div className="pdf-images-toolbar">
++        <span>第 <strong>{current}</strong> / {pages.length} 页</span>
++        <span className="pdf-images-meta">
++          共 {pages.length} 页 · 服务端栅格化 · 模式：图片+文字
++          {textTotalPages > 0 && ` · 文字层 ${textLoadedCount}/${textTotalPages}`}
++        </span>
++      </div>
++      <div
++        className="pdf-images-frame"
++        style={maxPageWidth ? { maxWidth: maxPageWidth + 'px' } : undefined}
++      >
++        {pages.map(p => {
++          const visible = visibleSet.has(p.page)
++          const cachedLayer = textLayers.get(p.page)
++          const textHtml = cachedLayer?.html || ''
++          const { w, h } = pageDims(p)
++          return (
++            <div
++              key={p.page}
++              className="pdf-image-page"
++              data-page={p.page}
++              data-page-w={w}
++              data-page-h={h}
++              style={{
++                position: 'relative',
++                width: w + 'px',
++                height: h + 'px',
++                marginBottom: 12
++              }}
++            >
++              {/* img 由 .pdf-images-page CSS 规则管理尺寸（width:100%; height:100%）。
++                  不再用内联 style 强制，避免与 CSS class 冲突导致窄窗下 wrapper/img 缩放不同步。 */}
++              <img
++                className="pdf-images-page"
++                src={visible ? p.url : undefined}
++                alt={`第 ${p.page} 页`}
++                loading="lazy"
++                decoding="async"
++                style={{ display: 'block' }}
++              />
++              {/* 文字覆盖层：透明但可选可复制。坐标系与 wrapper 像素 1:1 对齐 */}
++              {p.textUrl && textHtml && (
++                <div
++                  className="pdf-text-layer"
++                  data-page={p.page}
++                  dangerouslySetInnerHTML={{ __html: textHtml }}
++                />
++              )}
++            </div>
++          )
++        })}
++      </div>
++    </div>
++  )
++}
+\ No newline at end of file

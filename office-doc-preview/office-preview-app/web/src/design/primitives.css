@@ -1,0 +1,145 @@
+/* 模型：claude-sonnet-4-6 */
+/* AUTO-GENERATED from primitives.ts via build script (Phase 1) */
+/* For Phase 0: hand-mirrored; Phase 1 will replace with build-time codegen */
+
+:root {
+  /* Slate (neutrals) */
+  --slate-1: #fcfcfd;
+  --slate-2: #f8f9fa;
+  --slate-3: #f1f3f5;
+  --slate-4: #eceef0;
+  --slate-5: #e6e8eb;
+  --slate-6: #dfe3e6;
+  --slate-7: #d3d7dc;
+  --slate-8: #b1b8be;
+  --slate-9: #8b949e;
+  --slate-10: #6e7681;
+  --slate-11: #4e5969;
+  --slate-12: #1f2329;
+
+  /* Blue (brand) — single source, #1677ff = blue-7 */
+  --blue-1: #f5f8ff;
+  --blue-2: #e6f4ff;
+  --blue-3: #bae0ff;
+  --blue-4: #91caff;
+  --blue-5: #69b1ff;
+  --blue-6: #4096ff;
+  --blue-7: #1677ff;
+  --blue-8: #0958d9;
+  --blue-9: #003eb3;
+  --blue-10: #002c8c;
+  --blue-11: #001d66;
+  --blue-12: #001040;
+
+  /* Purple (AI) */
+  --purple-1: #faf5ff;
+  --purple-2: #f9f0ff;
+  --purple-3: #efdbff;
+  --purple-4: #d3adf7;
+  --purple-5: #b37feb;
+  --purple-6: #9254de;
+  --purple-7: #722ed1;
+  --purple-8: #531dab;
+  --purple-9: #391e5a;
+  --purple-10: #2c1242;
+  --purple-11: #1f0a2e;
+  --purple-12: #12051a;
+
+  /* Indigo (Linear/Vercel accent) */
+  --indigo-1: #eef0ff;
+  --indigo-2: #e0e7ff;
+  --indigo-3: #c7d2fe;
+  --indigo-4: #a5b4fc;
+  --indigo-5: #818cf8;
+  --indigo-6: #6366f1;
+  --indigo-7: #4f46e5;
+  --indigo-8: #3730a3;
+  --indigo-9: #1e1b4b;
+  --indigo-10: #16143a;
+  --indigo-11: #0f0d28;
+  --indigo-12: #080616;
+
+  /* Red (danger) */
+  --red-1: #fff1f0;
+  --red-2: #ffccc7;
+  --red-3: #ffa39e;
+  --red-4: #ff7875;
+  --red-5: #ff4d4f;
+  --red-6: #f5222d;
+  --red-7: #cf1322;
+  --red-8: #a8071a;
+  --red-9: #820014;
+  --red-10: #5c0011;
+  --red-11: #36000a;
+  --red-12: #1a0003;
+
+  /* Green (success) */
+  --green-1: #f6ffed;
+  --green-2: #d9f7be;
+  --green-3: #b7eb8f;
+  --green-4: #95de64;
+  --green-5: #73d13d;
+  --green-6: #52c41a;
+  --green-7: #389e0d;
+  --green-8: #237804;
+  --green-9: #135200;
+  --green-10: #093500;
+  --green-11: #04200a;
+  --green-12: #011203;
+
+  /* Amber (warning) */
+  --amber-1: #fffbe6;
+  --amber-2: #fff1b8;
+  --amber-3: #ffe58f;
+  --amber-4: #ffd666;
+  --amber-5: #ffc53d;
+  --amber-6: #faad14;
+  --amber-7: #d48806;
+  --amber-8: #ad6800;
+  --amber-9: #874d00;
+  --amber-10: #613400;
+  --amber-11: #3f2200;
+  --amber-12: #1f0e00;
+
+  /* Cyan (data viz) */
+  --cyan-1: #e6fffb;
+  --cyan-2: #b5f5ec;
+  --cyan-3: #87e8de;
+  --cyan-4: #5cdbd3;
+  --cyan-5: #36cfc9;
+  --cyan-6: #13c2c2;
+  --cyan-7: #08979c;
+  --cyan-8: #006d75;
+  --cyan-9: #00474f;
+  --cyan-10: #002329;
+  --cyan-11: #001417;
+  --cyan-12: #000a0c;
+
+  /* Magenta (data viz) */
+  --magenta-1: #fff0f6;
+  --magenta-2: #ffd6e7;
+  --magenta-3: #ffadd2;
+  --magenta-4: #ff85c0;
+  --magenta-5: #f759ab;
+  --magenta-6: #eb2f96;
+  --magenta-7: #c41d7f;
+  --magenta-8: #9e1068;
+  --magenta-9: #780650;
+  --magenta-10: #52033a;
+  --magenta-11: #2c011e;
+  --magenta-12: #10000a;
+
+  /* Orange (data viz) */
+  --orange-1: #fff7e6;
+  --orange-2: #ffe7ba;
+  --orange-3: #ffd591;
+  --orange-4: #ffc069;
+  --orange-5: #ffa940;
+  --orange-6: #fa8c16;
+  --orange-7: #d46b08;
+  --orange-8: #ad4e00;
+  --orange-9: #874000;
+  --orange-10: #5c2d00;
+  --orange-11: #321900;
+  --orange-12: #170a00;
+}

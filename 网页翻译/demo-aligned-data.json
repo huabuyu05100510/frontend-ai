@@ -1,0 +1,384 @@
+{
+  "cases": [
+    {
+      "src": "The quick brown fox jumps over the lazy dog",
+      "tgt": "敏捷的棕色狐狸跳过了懒狗",
+      "alignments": [
+        {
+          "tgtIdx": 10,
+          "srcIdx": 0,
+          "score": 0.87
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.819
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 2,
+          "score": 0.839
+        },
+        {
+          "tgtIdx": 11,
+          "srcIdx": 3,
+          "score": 0.865
+        },
+        {
+          "tgtIdx": 7,
+          "srcIdx": 4,
+          "score": 0.864
+        },
+        {
+          "tgtIdx": 8,
+          "srcIdx": 5,
+          "score": 0.851
+        },
+        {
+          "tgtIdx": 10,
+          "srcIdx": 6,
+          "score": 0.863
+        },
+        {
+          "tgtIdx": 10,
+          "srcIdx": 7,
+          "score": 0.856
+        },
+        {
+          "tgtIdx": 11,
+          "srcIdx": 8,
+          "score": 0.856
+        },
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.848
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.862
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 0,
+          "score": 0.867
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 2,
+          "score": 0.834
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 0,
+          "score": 0.854
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 3,
+          "score": 0.854
+        },
+        {
+          "tgtIdx": 6,
+          "srcIdx": 3,
+          "score": 0.827
+        },
+        {
+          "tgtIdx": 8,
+          "srcIdx": 0,
+          "score": 0.863
+        },
+        {
+          "tgtIdx": 9,
+          "srcIdx": 0,
+          "score": 0.867
+        }
+      ],
+      "f1": 0.6666666666666667
+    },
+    {
+      "src": "I love you",
+      "tgt": "我爱你",
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.928
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.924
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 2,
+          "score": 0.914
+        }
+      ],
+      "f1": 1
+    },
+    {
+      "src": "Hello world",
+      "tgt": "你好世界",
+      "alignments": [
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.928
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 1,
+          "score": 0.945
+        },
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.916
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 1,
+          "score": 0.943
+        }
+      ],
+      "f1": 1
+    },
+    {
+      "src": "The cat is sleeping",
+      "tgt": "猫在睡觉",
+      "alignments": [
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.919
+        },
+        {
+          "tgtIdx": 0,
+          "srcIdx": 1,
+          "score": 0.931
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 2,
+          "score": 0.925
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 3,
+          "score": 0.931
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 3,
+          "score": 0.922
+        }
+      ],
+      "f1": 0.888888888888889
+    },
+    {
+      "src": "Open the door",
+      "tgt": "打开门",
+      "alignments": [
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.964
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.967
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 2,
+          "score": 0.959
+        },
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.964
+        }
+      ],
+      "f1": 0.8571428571428571
+    },
+    {
+      "src": "Neural networks are powerful",
+      "tgt": "神经网络很强大",
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.897
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 1,
+          "score": 0.884
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 2,
+          "score": 0.904
+        },
+        {
+          "tgtIdx": 6,
+          "srcIdx": 3,
+          "score": 0.91
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 4,
+          "score": 0.91
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.887
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 2,
+          "score": 0.899
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 3,
+          "score": 0.907
+        }
+      ],
+      "f1": 0.7999999999999999
+    },
+    {
+      "src": "Machine learning models require large datasets",
+      "tgt": "机器学习模型需要大量数据",
+      "alignments": [
+        {
+          "tgtIdx": 0,
+          "srcIdx": 0,
+          "score": 0.873
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 1,
+          "score": 0.891
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 2,
+          "score": 0.872
+        },
+        {
+          "tgtIdx": 6,
+          "srcIdx": 3,
+          "score": 0.874
+        },
+        {
+          "tgtIdx": 8,
+          "srcIdx": 4,
+          "score": 0.849
+        },
+        {
+          "tgtIdx": 10,
+          "srcIdx": 5,
+          "score": 0.864
+        },
+        {
+          "tgtIdx": 7,
+          "srcIdx": 6,
+          "score": 0.872
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 0,
+          "score": 0.855
+        },
+        {
+          "tgtIdx": 3,
+          "srcIdx": 1,
+          "score": 0.885
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 2,
+          "score": 0.858
+        },
+        {
+          "tgtIdx": 8,
+          "srcIdx": 6,
+          "score": 0.869
+        },
+        {
+          "tgtIdx": 9,
+          "srcIdx": 6,
+          "score": 0.865
+        },
+        {
+          "tgtIdx": 11,
+          "srcIdx": 5,
+          "score": 0.86
+        }
+      ],
+      "f1": 0.8
+    },
+    {
+      "src": "The weather is nice today",
+      "tgt": "今天天气很好",
+      "alignments": [
+        {
+          "tgtIdx": 3,
+          "srcIdx": 0,
+          "score": 0.899
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 1,
+          "score": 0.861
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 2,
+          "score": 0.894
+        },
+        {
+          "tgtIdx": 5,
+          "srcIdx": 3,
+          "score": 0.875
+        },
+        {
+          "tgtIdx": 1,
+          "srcIdx": 4,
+          "score": 0.883
+        },
+        {
+          "tgtIdx": 0,
+          "srcIdx": 4,
+          "score": 0.878
+        },
+        {
+          "tgtIdx": 2,
+          "srcIdx": 0,
+          "score": 0.899
+        },
+        {
+          "tgtIdx": 4,
+          "srcIdx": 2,
+          "score": 0.885
+        }
+      ],
+      "f1": 0.7142857142857143
+    }
+  ],
+  "summary": {
+    "model": "Xenova/LaBSE",
+    "totalCases": 8,
+    "avgLatencyMs": 0.5,
+    "avgAlignmentsPerCase": 7.9,
+    "avgF1": 0.841,
+    "minF1": 0.667,
+    "maxF1": 1
+  }
+}

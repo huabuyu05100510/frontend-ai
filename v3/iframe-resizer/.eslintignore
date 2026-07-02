@@ -1,0 +1,8 @@
+dist
+js
+**/*.d.js
+coverage
+example/react/src/message-data.jsx
+example-test/react/src/message-data.jsx
+example-test/
+packages/common/mode.js

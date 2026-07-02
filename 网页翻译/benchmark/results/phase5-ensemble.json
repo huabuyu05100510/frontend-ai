@@ -1,0 +1,495 @@
+{
+  "summary": {
+    "routeA_avgF1": 0.706,
+    "routeC_avgF1": 0.704,
+    "ensemble_50_50": 0.775,
+    "ensemble_70_30": 0.781,
+    "ensemble_30_70": 0.737,
+    "best": "ensemble_70_30",
+    "bestF1": 0.781,
+    "vsRouteA": 0.075,
+    "vsRouteC": 0.077
+  },
+  "cases": [
+    {
+      "caseIdx": 0,
+      "src": "The quick brown fox jumps over the lazy dog",
+      "gen_tgt": "快速棕色狐狸跳过懒懒狗",
+      "f1A": {
+        "precision": 0.7692307692307693,
+        "recall": 1,
+        "f1": 0.8695652173913044,
+        "tp": 10,
+        "fp": 3,
+        "fn": 0,
+        "predCount": 13,
+        "goldCount": 10
+      },
+      "f1C": {
+        "precision": 0.4,
+        "recall": 0.4,
+        "f1": 0.4000000000000001,
+        "tp": 4,
+        "fp": 6,
+        "fn": 6,
+        "predCount": 10,
+        "goldCount": 10
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 0.7,
+          "recall": 0.7,
+          "f1": 0.7,
+          "tp": 7,
+          "fp": 3,
+          "fn": 3,
+          "predCount": 10,
+          "goldCount": 10
+        },
+        "A=0.7/C=0.3": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 10,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 10,
+          "goldCount": 10
+        },
+        "A=0.3/C=0.7": {
+          "precision": 0.4,
+          "recall": 0.4,
+          "f1": 0.4000000000000001,
+          "tp": 4,
+          "fp": 6,
+          "fn": 6,
+          "predCount": 10,
+          "goldCount": 10
+        }
+      },
+      "routeAPairs": 13,
+      "routeCPairs": 10,
+      "goldCount": 10
+    },
+    {
+      "caseIdx": 1,
+      "src": "I love you",
+      "gen_tgt": "我爱你",
+      "f1A": {
+        "precision": 0.3333333333333333,
+        "recall": 1,
+        "f1": 0.5,
+        "tp": 1,
+        "fp": 2,
+        "fn": 0,
+        "predCount": 3,
+        "goldCount": 1
+      },
+      "f1C": {
+        "precision": 0,
+        "recall": 0,
+        "f1": 0,
+        "tp": 0,
+        "fp": 1,
+        "fn": 1,
+        "predCount": 1,
+        "goldCount": 1
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 0,
+          "recall": 0,
+          "f1": 0,
+          "tp": 0,
+          "fp": 1,
+          "fn": 1,
+          "predCount": 1,
+          "goldCount": 1
+        },
+        "A=0.7/C=0.3": {
+          "precision": 0,
+          "recall": 0,
+          "f1": 0,
+          "tp": 0,
+          "fp": 1,
+          "fn": 1,
+          "predCount": 1,
+          "goldCount": 1
+        },
+        "A=0.3/C=0.7": {
+          "precision": 0,
+          "recall": 0,
+          "f1": 0,
+          "tp": 0,
+          "fp": 1,
+          "fn": 1,
+          "predCount": 1,
+          "goldCount": 1
+        }
+      },
+      "routeAPairs": 3,
+      "routeCPairs": 1,
+      "goldCount": 1
+    },
+    {
+      "caseIdx": 2,
+      "src": "Hello world",
+      "gen_tgt": "你好,世界好",
+      "f1A": {
+        "precision": 0.5,
+        "recall": 1,
+        "f1": 0.6666666666666666,
+        "tp": 2,
+        "fp": 2,
+        "fn": 0,
+        "predCount": 4,
+        "goldCount": 2
+      },
+      "f1C": {
+        "precision": 0.3333333333333333,
+        "recall": 0.5,
+        "f1": 0.4,
+        "tp": 1,
+        "fp": 2,
+        "fn": 1,
+        "predCount": 3,
+        "goldCount": 2
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 0.5,
+          "recall": 1,
+          "f1": 0.6666666666666666,
+          "tp": 2,
+          "fp": 2,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 2
+        },
+        "A=0.7/C=0.3": {
+          "precision": 0.5,
+          "recall": 1,
+          "f1": 0.6666666666666666,
+          "tp": 2,
+          "fp": 2,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 2
+        },
+        "A=0.3/C=0.7": {
+          "precision": 0.5,
+          "recall": 1,
+          "f1": 0.6666666666666666,
+          "tp": 2,
+          "fp": 2,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 2
+        }
+      },
+      "routeAPairs": 4,
+      "routeCPairs": 3,
+      "goldCount": 2
+    },
+    {
+      "caseIdx": 3,
+      "src": "The cat is sleeping",
+      "gen_tgt": "猫在睡觉",
+      "f1A": {
+        "precision": 0.75,
+        "recall": 1,
+        "f1": 0.8571428571428571,
+        "tp": 3,
+        "fp": 1,
+        "fn": 0,
+        "predCount": 4,
+        "goldCount": 3
+      },
+      "f1C": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 3,
+        "goldCount": 3
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 3,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 3,
+          "goldCount": 3
+        },
+        "A=0.7/C=0.3": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 3,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 3,
+          "goldCount": 3
+        },
+        "A=0.3/C=0.7": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 3,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 3,
+          "goldCount": 3
+        }
+      },
+      "routeAPairs": 4,
+      "routeCPairs": 3,
+      "goldCount": 3
+    },
+    {
+      "caseIdx": 4,
+      "src": "Open the door",
+      "gen_tgt": "开门",
+      "f1A": {
+        "precision": 0.3333333333333333,
+        "recall": 1,
+        "f1": 0.5,
+        "tp": 1,
+        "fp": 2,
+        "fn": 0,
+        "predCount": 3,
+        "goldCount": 1
+      },
+      "f1C": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 1,
+        "goldCount": 1
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 1,
+          "goldCount": 1
+        },
+        "A=0.7/C=0.3": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 1,
+          "goldCount": 1
+        },
+        "A=0.3/C=0.7": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 1,
+          "goldCount": 1
+        }
+      },
+      "routeAPairs": 3,
+      "routeCPairs": 1,
+      "goldCount": 1
+    },
+    {
+      "caseIdx": 5,
+      "src": "Neural networks are powerful",
+      "gen_tgt": "神经网络很强大",
+      "f1A": {
+        "precision": 0.5,
+        "recall": 0.75,
+        "f1": 0.6,
+        "tp": 3,
+        "fp": 3,
+        "fn": 1,
+        "predCount": 6,
+        "goldCount": 4
+      },
+      "f1C": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 4,
+        "goldCount": 4
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 4
+        },
+        "A=0.7/C=0.3": {
+          "precision": 0.75,
+          "recall": 0.75,
+          "f1": 0.75,
+          "tp": 3,
+          "fp": 1,
+          "fn": 1,
+          "predCount": 4,
+          "goldCount": 4
+        },
+        "A=0.3/C=0.7": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 4
+        }
+      },
+      "routeAPairs": 6,
+      "routeCPairs": 4,
+      "goldCount": 4
+    },
+    {
+      "caseIdx": 6,
+      "src": "Machine learning models require large datasets",
+      "gen_tgt": "机器学习模式需要大型数据集",
+      "f1A": {
+        "precision": 0.75,
+        "recall": 1,
+        "f1": 0.8571428571428571,
+        "tp": 6,
+        "fp": 2,
+        "fn": 0,
+        "predCount": 8,
+        "goldCount": 6
+      },
+      "f1C": {
+        "precision": 0.8333333333333334,
+        "recall": 0.8333333333333334,
+        "f1": 0.8333333333333334,
+        "tp": 5,
+        "fp": 1,
+        "fn": 1,
+        "predCount": 6,
+        "goldCount": 6
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 0.8333333333333334,
+          "recall": 0.8333333333333334,
+          "f1": 0.8333333333333334,
+          "tp": 5,
+          "fp": 1,
+          "fn": 1,
+          "predCount": 6,
+          "goldCount": 6
+        },
+        "A=0.7/C=0.3": {
+          "precision": 0.8333333333333334,
+          "recall": 0.8333333333333334,
+          "f1": 0.8333333333333334,
+          "tp": 5,
+          "fp": 1,
+          "fn": 1,
+          "predCount": 6,
+          "goldCount": 6
+        },
+        "A=0.3/C=0.7": {
+          "precision": 0.8333333333333334,
+          "recall": 0.8333333333333334,
+          "f1": 0.8333333333333334,
+          "tp": 5,
+          "fp": 1,
+          "fn": 1,
+          "predCount": 6,
+          "goldCount": 6
+        }
+      },
+      "routeAPairs": 8,
+      "routeCPairs": 6,
+      "goldCount": 6
+    },
+    {
+      "caseIdx": 7,
+      "src": "The weather is nice today",
+      "gen_tgt": "今天天气天气不错",
+      "f1A": {
+        "precision": 0.6666666666666666,
+        "recall": 1,
+        "f1": 0.8,
+        "tp": 4,
+        "fp": 2,
+        "fn": 0,
+        "predCount": 6,
+        "goldCount": 4
+      },
+      "f1C": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "predCount": 4,
+        "goldCount": 4
+      },
+      "f1Ensemble": {
+        "A=0.5/C=0.5": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 4
+        },
+        "A=0.7/C=0.3": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 4
+        },
+        "A=0.3/C=0.7": {
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "predCount": 4,
+          "goldCount": 4
+        }
+      },
+      "routeAPairs": 6,
+      "routeCPairs": 4,
+      "goldCount": 4
+    }
+  ]
+}

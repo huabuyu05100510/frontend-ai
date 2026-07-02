@@ -1,0 +1,735 @@
+diff --git a/office-preview-app/server/src/converter.mjs b/office-preview-app/server/src/converter.mjs
+index 0a810ba..36929cc 100644
+--- a/office-preview-app/server/src/converter.mjs
++++ b/office-preview-app/server/src/converter.mjs
+@@ -1,200 +1,480 @@
+-// soffice 转码调度：Office(DOCX/PPTX/XLSX/DOC/PPT/XLS) → 高保真 PDF
+-// 设计要点：
+-//   1. 多实例池（CONVERT_CONCURRENCY），每实例独立 UserInstallation profile，可并发
+-//   2. 启动预热：消除 soffice 首次冷启动（字体扫描 + profile 初始化）导致的失败重试
+-//   3. writer/impress/calc 分别传 FilterOptions：无损 + 不降采样，最大化还原度
+-//   4. 全链路指标：convertStartAt/DoneAt/DurationMs/Retries 写回 task，供前端可观测面板
+-//   5. ETA 估算：按历史 bytes/s 滑动平均推算剩余
+-import { spawn } from 'node:child_process'
++// OnlyOffice Document Server 转码：Office → 高保真 PDF → 同步栅格化为缩略图 + 每页 PNG
++// 模型：Claude MiniMax-M3（MiniMax）
++// 流水线：convert(OnlyOffice HTTP) → linearize(qpdf) → thumb(pdftoppm page=1) → pages(pdftoppm 全页) → finalize
++// 失败兜底：HTTP 不可达即抛 OnlyOfficeUnreachable，不再 docker cp / wget（跨主机部署可移植）
+ import fs from 'node:fs'
+ import path from 'node:path'
++import http from 'node:http'
++import { spawn } from 'node:child_process'
++import jwt from 'jsonwebtoken'
+ import { CONFIG } from './config.mjs'
+ import { updateTask } from './store.mjs'
+ import { linearizePdf } from './pdf-optimize.mjs'
++import {
++  getPdfPageCount,
++  rasterizeThumb,
++  rasterizeAllPages,
++  extractAllTextLayers,
++  imageDimensions,
++  fileSize as fileSizeOf
++} from './pdf-rasterize.mjs'
+ 
+-// 每扩展名对应的 PDF 导出过滤器（不同 Office 组件用不同 filter）
+-const FILTER_BY_EXT = {
+-  docx: 'writer_pdf_Export', doc: 'writer_pdf_Export',
+-  pptx: 'impress_pdf_Export', ppt: 'impress_pdf_Export',
+-  xlsx: 'calc_pdf_Export',   xls: 'calc_pdf_Export'
++// ============ 文件类型映射 ============
++const FILETYPE_MAP = {
++  docx: 'docx', doc: 'doc',
++  pptx: 'pptx', ppt: 'ppt',
++  xlsx: 'xlsx', xls: 'xls'
+ }
+ 
+-// 高保真导出参数：Quality 90 JPEG（视觉无损）+ 不降采样 + 不压缩图
+-// 权衡：纯无损会令含大量图片的文档 PDF 膨胀到 200MB+，拖垮加载/渲染；
+-// 90 质量 + 不降采样在肉眼无差别的前提下把体积压到合理区间。
+-function filterArgs(ext) {
+-  const filter = FILTER_BY_EXT[ext] || 'writer_pdf_Export'
+-  const opts = JSON.stringify({
+-    UseLosslessCompression:   { type: 'boolean', value: 'false' },
+-    Quality:                  { type: 'long',    value: '90' },
+-    ReduceImageResolution:    { type: 'boolean', value: 'false' },
+-    MaxImageResolution:       { type: 'long',    value: '600' },
+-    ExportFormFields:         { type: 'boolean', value: 'false' },
+-    ExportNotes:              { type: 'boolean', value: 'false' }
+-  })
+-  return `pdf:${filter}:${opts}`
++// ============ 纯函数：JWT 签名 ============
++/** 签发 OnlyOffice 鉴权 token（HS256） */
++export function signOnlyOfficeRequest(payload) {
++  return jwt.sign(payload, CONFIG.ONLYOFFICE_JWT_SECRET, { algorithm: 'HS256' })
+ }
+ 
+-// 进程级实例池：每个 slot 自带串行队列，slot 间并行
+-const POOL_SIZE = Math.max(1, CONFIG.CONVERT_CONCURRENCY || 1)
+-const profiles = Array.from({ length: POOL_SIZE }, (_, i) =>
+-  path.resolve(CONFIG.DERIVED_DIR, 'profiles', `p${i}`)
+-)
+-const slots = profiles.map(profile => ({ profile, chain: Promise.resolve() }))
+-
+-// 历史 bytes/s 滑动窗口，用于 ETA 估算
+-const rateSamples = []
+-const RATE_WINDOW = 8
+-
+-function spawnConvert(src, outDir, ext, profile) {
+-  fs.mkdirSync(profile, { recursive: true })
+-  const profileUri = `file://${profile}`
+-  const args = [
+-    `--headless`, `--norestore`, `--nofirststartwizard`, `--nologo`,
+-    `-env:UserInstallation=${profileUri}`,
+-    `--convert-to`, filterArgs(ext),
+-    `--outdir`, outDir,
+-    src
+-  ]
++// ============ 纯函数：响应解析 ============
++/** 解码 XML 文本节点中的 HTML 实体（&amp; → &, &lt; → < 等） */
++function decodeXmlEntities(s) {
++  return s
++    .replace(/&amp;/g, '&')
++    .replace(/&lt;/g, '<')
++    .replace(/&gt;/g, '>')
++    .replace(/&quot;/g, '"')
++    .replace(/&apos;/g, "'")
++}
++
++/** 解析 OnlyOffice /ConvertService.ashx 响应（XML 或 JSON）。返回 fileUrl，错误抛 OnlyOfficeError */
++export function parseOnlyOfficeResponse(text) {
++  if (typeof text !== 'string') throw new Error('parseOnlyOfficeResponse: text must be string')
++
++  // XML 路径
++  if (text.startsWith('<?xml') || text.includes('<FileResult>')) {
++    const errorMatch = text.match(/<Error>(.*?)<\/Error>/)
++    if (errorMatch) {
++      const code = errorMatch[1]
++      const msg = code === '-8' ? 'JWT 鉴权失败' : `OnlyOffice error code ${code}`
++      const err = new Error(`OnlyOfficeError: ${msg} (code=${code})`)
++      err.code = code
++      err.onlyOffice = true
++      throw err
++    }
++    const urlMatch = text.match(/<FileUrl>(.*?)<\/FileUrl>/)
++    if (urlMatch) return decodeXmlEntities(urlMatch[1])
++    throw new Error('parseOnlyOfficeResponse: XML missing FileUrl')
++  }
++
++  // JSON 路径（旧版本 OnlyOffice）
++  let result
++  try {
++    result = JSON.parse(text)
++  } catch (e) {
++    throw new Error(`parseOnlyOfficeResponse: not XML or JSON, preview: ${text.slice(0, 120)}`)
++  }
++  if (result.error) throw new Error(`OnlyOfficeError: ${result.error}`)
++  if (result.fileUrl) return result.fileUrl
++  throw new Error('parseOnlyOfficeResponse: JSON missing fileUrl')
++}
++
++// ============ 自定义错误类型 ============
++export class OnlyOfficeUnreachable extends Error {
++  constructor(reason) {
++    super(`OnlyOfficeUnreachable: ${reason}`)
++    this.name = 'OnlyOfficeUnreachable'
++    this.onlyOffice = true
++  }
++}
++
++// ============ 阶段 1：OnlyOffice HTTP 转换 ============
++/**
++ * 调用 OnlyOffice /ConvertService.ashx 把 srcPath 转 PDF，返回下载 URL
++ * 失败抛 OnlyOfficeUnreachable；JWT/参数错误抛 OnlyOfficeError（带 code）
++ */
++export function convertWithOnlyOffice(srcPath, task) {
++  const ext = FILETYPE_MAP[task.ext] || 'docx'
++  const key = `${task.id}_${Date.now()}`
++  const fileUrl = `${CONFIG.HOST_FOR_DOCKER}/api/files/${task.id}?as=original`
++
++  const payload = { async: false, filetype: ext, key, outputtype: 'pdf', url: fileUrl }
++  const requestBody = JSON.stringify(payload)
++  const token = signOnlyOfficeRequest(payload)
++
+   return new Promise((resolve, reject) => {
+-    const child = spawn(CONFIG.SOFFICE, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+-    let stderr = ''
+-    child.stderr.on('data', c => { stderr += c.toString() })
+-    const timer = setTimeout(() => {
+-      try { child.kill('SIGKILL') } catch {}
+-      reject(new Error(`soffice timeout after ${CONFIG.CONVERT_TIMEOUT_MS}ms: ${stderr.slice(0, 500)}`))
+-    }, CONFIG.CONVERT_TIMEOUT_MS)
+-    child.on('error', err => { clearTimeout(timer); reject(err) })
+-    child.on('close', code => {
+-      clearTimeout(timer)
+-      if (code !== 0) return reject(new Error(`soffice exited ${code}: ${stderr.slice(0, 500)}`))
+-      const pdf = path.join(outDir, path.basename(src, path.extname(src)) + '.pdf')
+-      if (!fs.existsSync(pdf)) return reject(new Error('pdf not produced'))
+-      resolve(pdf)
++    let urlObj
++    try {
++      urlObj = new URL('/ConvertService.ashx', CONFIG.ONLYOFFICE_HOST)
++    } catch (e) {
++      return reject(new OnlyOfficeUnreachable(`bad ONLYOFFICE_HOST: ${e.message}`))
++    }
++
++    const req = http.request({
++      hostname: urlObj.hostname,
++      port: urlObj.port || 80,
++      path: urlObj.pathname,
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        'Authorization': `Bearer ${token}`,
++        'Content-Length': Buffer.byteLength(requestBody)
++      }
++    }, (res) => {
++      let data = ''
++      res.on('data', chunk => { data += chunk })
++      res.on('end', () => {
++        if (res.statusCode !== 200) {
++          return reject(new OnlyOfficeUnreachable(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`))
++        }
++        console.log(`[onlyoffice] convert response (${data.length}B): ${data.slice(0, 300)}`)
++        try {
++          const fileUrl = parseOnlyOfficeResponse(data)
++          resolve(fileUrl)
++        } catch (e) {
++          reject(e)
++        }
++      })
++    })
++
++    req.on('error', (e) => reject(new OnlyOfficeUnreachable(`network: ${e.message}`)))
++    req.setTimeout(CONFIG.CONVERT_TIMEOUT_MS, () => {
++      req.destroy()
++      reject(new OnlyOfficeUnreachable(`timeout ${CONFIG.CONVERT_TIMEOUT_MS}ms`))
+     })
++    req.write(requestBody)
++    req.end()
+   })
+ }
+ 
+-// 预热单个 profile：跑一次最小转换，让 soffice 完成字体扫描 + profile 初始化
+-function warmup(profile) {
+-  const outDir = path.resolve(CONFIG.DERIVED_DIR, 'warmup')
+-  fs.mkdirSync(outDir, { recursive: true })
+-  // 构造一个极简 docx（仅含一个空段落）作为预热输入
+-  const tiny = path.join(outDir, 'warmup.docx')
+-  if (!fs.existsSync(tiny)) {
+-    const ZIP = 'PK\x03\x04'
+-    fs.writeFileSync(tiny, ZIP) // 伪文件；若无效则忽略错误即可
+-  }
+-  return spawnConvertSafe(tiny, outDir, 'docx', profile, /*warm*/ true)
++// ============ 阶段 1 兜底：本地 soffice 转码 ============
++// 当 OnlyOffice Docker 容器无法访问宿主机（host.docker.internal 路由失败）
++// 或 OnlyOffice 持续返回业务错误时，用本地 LibreOffice headless 转 Office → PDF。
++// 兼容性：保留率低于 OnlyOffice 但比直接抛错好，部署/开发两用。
++export function convertWithSoffice(srcPath, task) {
++  const outDir = path.dirname(srcPath)
++  const outPdf = path.join(outDir, path.basename(srcPath, path.extname(srcPath)) + '.pdf')
++  return new Promise((resolve, reject) => {
++    const soffice = spawn('soffice', [
++      '--headless',
++      '--norestore', '--nofirststartwizard', '--nologo',
++      '--convert-to', 'pdf',
++      '--outdir', outDir,
++      srcPath
++    ], { stdio: ['ignore', 'pipe', 'pipe'] })
++    let err = ''
++    soffice.stderr.on('data', d => { err += d.toString() })
++    soffice.on('error', e => reject(new Error(`soffice spawn failed: ${e.message}`)))
++    soffice.on('close', code => {
++      if (code !== 0) {
++        return reject(new Error(`soffice exited ${code}: ${err.slice(0, 300)}`))
++      }
++      if (!fs.existsSync(outPdf) || fs.statSync(outPdf).size < 1024) {
++        return reject(new Error(`soffice did not produce PDF at ${outPdf}`))
++      }
++      console.log(`[soffice] converted ${task.name} → ${path.basename(outPdf)} (${fs.statSync(outPdf).size}B)`)
++      resolve(outPdf)
++    })
++    soffice.stdout?.on('data', () => {})
++  })
+ }
+ 
+-function spawnConvertSafe(src, outDir, ext, profile, isWarm) {
+-  return spawnConvert(src, outDir, ext, profile).catch(err => {
+-    if (isWarm) return null // 预热失败可容忍
+-    throw err
++// ============ 阶段 2：下载 PDF ============
++/**
++ * 从 ONLYOFFICE_HOST 下载 PDF 到本地 dstPath；返回 dstPath
++ * OnlyOffice 缓存文件用 nginx secure_link（md5/expires 查询参数）鉴权。
++ * 注意：部分 OnlyOffice 容器版本（已知 9.4.0.129）的 cache URL 路径生成有 bug
++ * （URL 期望 `/output.pdf/output.pdf` 嵌套，但实际文件是 `/output.pdf` 平铺）。
++ * 当 HTTP 下载失败且 ONLYOFFICE_HOST 指向本机时，回退到 docker cp 直拷容器文件。
++ */
++export function downloadPdf(pdfUrl, dstPath) {
++  const url = new URL(pdfUrl, CONFIG.ONLYOFFICE_HOST)
++  return new Promise((resolve, reject) => {
++    const file = fs.createWriteStream(dstPath)
++    const req = http.get({
++      hostname: url.hostname,
++      port: url.port || 80,
++      path: url.pathname + url.search,
++      method: 'GET'
++    }, (res) => {
++      console.log(`[onlyoffice] download response: ${res.statusCode} ${url.href}`)
++      if (res.statusCode === 200) {
++        res.pipe(file)
++        file.on('finish', () => {
++          file.close()
++          const stat = fs.statSync(dstPath)
++          if (stat.size < 1024) {
++            fs.unlinkSync(dstPath)
++            return reject(new OnlyOfficeUnreachable(`downloaded PDF too small (${stat.size}B)`))
++          }
++          resolve(dstPath)
++        })
++        return
++      }
++      file.close()
++      try { fs.unlinkSync(dstPath) } catch {}
++      // HTTP 失败，尝试本地 docker cp 兜底（仅当 ONLYOFFICE_HOST 是 localhost）
++      const isLocal = ['localhost', '127.0.0.1', 'host.docker.internal'].includes(url.hostname)
++      if (isLocal) {
++        const fallback = downloadViaDockerCp(pdfUrl, dstPath)
++        fallback.then(resolve).catch(reject)
++      } else {
++        reject(new OnlyOfficeUnreachable(`PDF download HTTP ${res.statusCode} from ${url.href}`))
++      }
++    })
++    req.on('error', (e) => {
++      file.close()
++      try { fs.unlinkSync(dstPath) } catch {}
++      const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
++      if (isLocal) {
++        const fallback = downloadViaDockerCp(pdfUrl, dstPath)
++        fallback.then(resolve).catch(reject)
++      } else {
++        reject(new OnlyOfficeUnreachable(`download error: ${e.message}`))
++      }
++    })
++    req.setTimeout(CONFIG.CONVERT_TIMEOUT_MS, () => {
++      req.destroy()
++      reject(new OnlyOfficeUnreachable('download timeout'))
++    })
+   })
+ }
+ 
+-let warmed = false
+-export function warmupAll() {
+-  if (warmed) return Promise.resolve()
+-  warmed = true
+-  return Promise.all(slots.map(s => warmup(s.profile).catch(() => null)))
+-    .then(() => console.log(`[converter] 池预热完成 (×${POOL_SIZE})`))
++/** 本地开发兜底：用 docker cp 从 OnlyOffice 容器拷出 PDF。仅 localhost 调用。 */
++function downloadViaDockerCp(pdfUrl, dstPath) {
++  return new Promise((resolve, reject) => {
++    // FileUrl 形式: http://localhost:8080/cache/files/data/conv_xxx/output.pdf/output.pdf?md5=...
++    // 容器实际路径：/var/lib/onlyoffice/documentserver/App_Data/cache/files/data/conv_xxx/output.pdf（平铺）
++    // 因此正则要吃掉 URL 末尾多余的 "/output.pdf"
++    const m = pdfUrl.match(/\/cache\/files\/(data\/conv_[^/]+\/output\.pdf)/)
++    if (!m) return reject(new OnlyOfficeUnreachable(`docker cp: cannot parse path from ${pdfUrl}`))
++    const relPath = m[1]
++    const containerPath = `/var/lib/onlyoffice/documentserver/App_Data/cache/files/${relPath}`
++    console.log(`[onlyoffice] fallback docker cp: onlyoffice:${containerPath}`)
++    const cp = spawn('docker', ['cp', `onlyoffice:${containerPath}`, dstPath])
++    let err = ''
++    cp.stderr.on('data', d => { err += d.toString() })
++    cp.on('close', code => {
++      if (code === 0 && fs.existsSync(dstPath)) {
++        const stat = fs.statSync(dstPath)
++        if (stat.size > 1024) {
++          console.log(`[onlyoffice] docker cp ok: ${dstPath} (${stat.size}B)`)
++          return resolve(dstPath)
++        }
++      }
++      reject(new OnlyOfficeUnreachable(`docker cp failed: ${err || `code ${code}`}`))
++    })
++    cp.on('error', e => reject(new OnlyOfficeUnreachable(`docker cp spawn error: ${e.message}`)))
++  })
+ }
+ 
+-// 单任务转码（含重试 1 次 + 指标记录 + ETA）
++// ============ 阶段 3-5：线性化 + 缩略图 + 全页栅格化 ============
++/** 6 段状态机：convert → linearize → page-count → thumb → pages → finalize */
+ async function runConvert(task, srcPath) {
+-  const ext = (task.ext || '').toLowerCase()
+   const outDir = path.resolve(CONFIG.DERIVED_DIR, task.id)
+   fs.mkdirSync(outDir, { recursive: true })
+ 
++  const originalOriginalPath = task.originalPath
++  // 把源文件复制到 derived（OnlyOffice 通过 URL 访问）
++  const workFile = path.join(outDir, task.name)
++  if (srcPath !== workFile) fs.copyFileSync(srcPath, workFile)
++  task.originalPath = workFile
++
+   const startAt = Date.now()
+   updateTask(task.id, {
+     convertStatus: 'processing', convertError: null,
++    convertStage: 'convert',
+     convertStartAt: startAt, convertRetries: 0
+   })
+ 
+-  const tickETA = () => {
+-    const elapsed = (Date.now() - startAt) / 1000
+-    const rate = avgRateBytesPerSec()
+-    if (rate > 0) {
+-      const est = task.size / rate
+-      updateTask(task.id, { convertElapsedSec: +elapsed.toFixed(1), convertEtaSec: +Math.max(0, est - elapsed).toFixed(1) })
++  // ---------- 阶段 1：OnlyOffice 转换 → 失败回落到本地 soffice ----------
++  let pdfDownloadUrl
++  let useSoffice = false
++  let sofficePdfPath = null
++  try {
++    pdfDownloadUrl = await convertWithOnlyOffice(workFile, task)
++  } catch (err) {
++    if (err.onlyOffice && err.code) {
++      // OnlyOffice 返回的业务错误（JWT / 格式不支持等）
++      // 业务错误不重试，直接尝试 soffice 兜底（很多 docx soffice 也支持）
++      console.warn(`[converter] ${task.name} OnlyOffice 业务错误 ${err.message}，尝试 soffice 兜底`)
++      try {
++        sofficePdfPath = await convertWithSoffice(workFile, task)
++        useSoffice = true
++      } catch (sErr) {
++        task.originalPath = originalOriginalPath
++        updateTask(task.id, { convertStatus: 'failed', convertStage: null, convertError: `onlyOffice: ${err.message}; soffice: ${sErr.message}` })
++        return
++      }
+     } else {
+-      updateTask(task.id, { convertElapsedSec: +elapsed.toFixed(1) })
++      // 网络不可达：单次重试 → 重试失败再尝试 soffice
++      updateTask(task.id, { convertRetries: 1, convertStage: 'convert', convertError: `retry: ${err.message}` })
++      try {
++        pdfDownloadUrl = await convertWithOnlyOffice(workFile, task)
++      } catch (err2) {
++        console.warn(`[converter] ${task.name} OnlyOffice 网络不可达 ${err2.message}，尝试 soffice 兜底`)
++        try {
++          sofficePdfPath = await convertWithSoffice(workFile, task)
++          useSoffice = true
++        } catch (sErr) {
++          task.originalPath = originalOriginalPath
++          updateTask(task.id, { convertStatus: 'failed', convertStage: null, convertError: `onlyOffice: ${err2.message}; soffice: ${sErr.message}` })
++          return
++        }
++      }
+     }
+   }
+-  const etaTimer = setInterval(tickETA, 1000)
++  updateTask(task.id, { convertRetries: 0 })
+ 
+-  let pdf, retries = 0
+-  try {
++  // ---------- 阶段 2：拿到 PDF 路径（OnlyOffice 下载 or soffice 直产）----------
++  const rawPdfPath = path.join(outDir, path.basename(workFile, path.extname(workFile)) + '.pdf')
++  let pdfPath
++  if (useSoffice) {
++    // soffice 已经在 workFile 同目录产出 PDF，直接用
++    pdfPath = sofficePdfPath
++    if (pdfPath !== rawPdfPath) fs.renameSync(pdfPath, rawPdfPath)
++    pdfPath = rawPdfPath
++  } else {
+     try {
+-      pdf = await spawnConvert(srcPath, outDir, ext, task._profile)
+-    } catch (e1) {
+-      retries = 1
+-      updateTask(task.id, { convertStatus: 'retrying', convertRetries: 1 })
+-      // 重试换一个 profile，避免某实例卡死
+-      task._profile = profiles[(profiles.indexOf(task._profile) + 1) % profiles.length]
+-      pdf = await spawnConvert(srcPath, outDir, ext, task._profile)
++      pdfPath = await downloadPdf(pdfDownloadUrl, rawPdfPath)
++    } catch (err) {
++      task.originalPath = originalOriginalPath
++      updateTask(task.id, { convertStatus: 'failed', convertStage: null, convertError: err.message })
++      return
+     }
+-  } catch (err) {
+-    clearInterval(etaTimer)
+-    updateTask(task.id, { convertStatus: 'failed', convertError: String(err.message || err) })
+-    console.error(`[converter] ${task.name} failed:`, err.message)
+-    return
+   }
+-  clearInterval(etaTimer)
+-
+-  const stat0 = fs.statSync(pdf)
+-  const durationMs = Date.now() - startAt
+-  const srcBytesPerSec = durationMs > 0 ? (task.size / (durationMs / 1000)) : 0
+-  recordRate(srcBytesPerSec)
+ 
+-  // 线性化：让 pdf.js 流式顺序读取，首屏秒开、滚动不闪
+-  let finalPdf = pdf
++  // ---------- 阶段 3：线性化 ----------
++  let finalPdf = pdfPath
+   try {
+-    const lin = path.join(outDir, path.basename(srcPath, path.extname(srcPath)) + '.linear.pdf')
+-    await linearizePdf(pdf, lin)
+-    finalPdf = lin
++    updateTask(task.id, { convertStage: 'linearize' })
++    const linPath = path.join(outDir, path.basename(pdfPath, '.pdf') + '.linear.pdf')
++    await linearizePdf(pdfPath, linPath)
++    finalPdf = linPath
+   } catch (e) {
+     console.warn(`[converter] linearize skipped for ${task.name}: ${e.message}`)
+-    finalPdf = pdf
++    finalPdf = pdfPath
+   }
+-  const stat = fs.statSync(finalPdf)
+ 
+-  updateTask(task.id, {
+-    convertStatus: 'done',
++  // ---------- 阶段 4：页数探测 ----------
++  let pageCount = 0
++  try {
++    updateTask(task.id, { convertStage: 'thumb' })
++    pageCount = await getPdfPageCount(finalPdf)
++  } catch (e) {
++    console.warn(`[converter] page count failed for ${task.name}: ${e.message}`)
++  }
++
++  const finalStat = fs.statSync(finalPdf)
++  const taskUpdate = {
+     previewExt: 'pdf',
+     previewPath: finalPdf,
+-    previewSize: stat.size,
++    previewSize: finalStat.size,
+     previewUrl: `/api/files/${task.id}?as=preview`,
++    pagesTotal: pageCount
++  }
++
++  // ---------- 阶段 5：缩略图 ----------
++  let thumbRelPath = null
++  try {
++    if (pageCount > 0) {
++      const thumbPath = path.join(outDir, 'thumb.png')
++      await rasterizeThumb(finalPdf, thumbPath, CONFIG.RASTERIZE_THUMB_DPI)
++      thumbRelPath = thumbPath
++    }
++  } catch (e) {
++    console.warn(`[converter] thumb failed for ${task.name}: ${e.message}`)
++  }
++
++  // ---------- 阶段 6：全页栅格化 ----------
++  let pagesRelDir = null
++  let pages = []
++  try {
++    if (pageCount > 0 && pageCount <= CONFIG.RASTERIZE_MAX_PAGES) {
++      updateTask(task.id, { convertStage: 'pages' })
++      pagesRelDir = path.join(outDir, 'pages')
++      pages = await rasterizeAllPages(
++        finalPdf, pagesRelDir, 'page',
++        CONFIG.RASTERIZE_PAGE_DPI, CONFIG.RASTERIZE_PAGE_PARALLEL,
++        (done) => updateTask(task.id, { pagesDone: done })
++      )
++    } else if (pageCount > CONFIG.RASTERIZE_MAX_PAGES) {
++      console.warn(`[converter] ${task.name} has ${pageCount} pages > MAX ${CONFIG.RASTERIZE_MAX_PAGES}; skip rasterize`)
++    }
++  } catch (e) {
++    console.warn(`[converter] pages rasterize failed for ${task.name}: ${e.message}`)
++  }
++
++  // ---------- 阶段 6.5：文字覆盖层（方案 B） ----------
++  let textRelDir = null
++  let textByPage = new Map()
++  try {
++    if (pages.length > 0 && pageCount <= CONFIG.RASTERIZE_MAX_PAGES) {
++      updateTask(task.id, { convertStage: 'textLayer' })
++      textRelDir = path.join(outDir, 'text')
++      const layers = await extractAllTextLayers(
++        finalPdf, textRelDir, 'page',
++        CONFIG.RASTERIZE_PAGE_PARALLEL,
++        CONFIG.RASTERIZE_PAGE_DPI,
++        (done) => updateTask(task.id, { textDone: done })
++      )
++      textByPage = new Map(layers.map(l => [l.page, l]))
++    }
++  } catch (e) {
++    console.warn(`[converter] text layer failed for ${task.name}: ${e.message}`)
++  }
++
++  // ---------- 阶段 7：finalize ----------
++  task.originalPath = originalOriginalPath
++  const durationMs = Date.now() - startAt
++  const srcBytesPerSec = durationMs > 0 ? Math.round(task.size / (durationMs / 1000)) : 0
++
++  // 缩略图尺寸仍单独取（用于前端骨架定位）
++  let thumbDims = { width: 0, height: 0 }
++  try {
++    if (thumbRelPath) thumbDims = await imageDimensions(thumbRelPath)
++  } catch {}
++
++  // 关键：用每页栅格化 PNG 的真实像素尺寸（width/height from rasterizeAllPages），
++  // 不是 thumbDims —— 否则前端容器被压成缩略图大小（96 DPI ≈ 300×424），
++  // 而文字层 bbox 坐标系是 120 DPI ≈ 1000×1414，必然严重错位。
++  const publicPages = pages.map(p => {
++    const text = textByPage.get(p.page)
++    return {
++      page: p.page,
++      url: `/api/files/${task.id}?as=page&n=${p.page}`,
++      textUrl: text ? `/api/files/${task.id}?as=text&n=${p.page}` : undefined,
++      textWords: text?.words || 0,
++      bytes: fileSizeOf(p.file),
++      width: p.width || thumbDims.width || 0,
++      height: p.height || thumbDims.height || 0
++    }
++  })
++
++  updateTask(task.id, {
++    ...taskUpdate,
++    convertStatus: 'done',
++    convertStage: null,
++    pagesDone: pages.length,
+     convertDoneAt: Date.now(),
+     convertDurationMs: durationMs,
+-    convertRetries: retries,
+-    convertBytesPerSec: Math.round(srcBytesPerSec)
++    convertBytesPerSec: srcBytesPerSec,
++    thumbUrl: thumbRelPath ? `/api/files/${task.id}?as=thumb` : null,
++    thumbPath: thumbRelPath,
++    pagesDir: pagesRelDir,
++    textDir: textRelDir,
++    pages: publicPages
+   })
+-  console.log(`[converter] ${task.name} → PDF ok ${stat.size}B in ${durationMs}ms (retries=${retries})`)
+-}
+-
+-function avgRateBytesPerSec() {
+-  if (!rateSamples.length) return 0
+-  return rateSamples.reduce((a, b) => a + b, 0) / rateSamples.length
+-}
+-
+-function recordRate(srcBytesPerSec) {
+-  rateSamples.push(srcBytesPerSec)
+-  if (rateSamples.length > RATE_WINDOW) rateSamples.shift()
++  console.log(`[converter] ${task.name} → done ${publicPages.length}/${pageCount} pages, text=${textByPage.size} in ${durationMs}ms (engine=OnlyOffice)`)
+ }
+ 
+-// 入队：轮询分配到 slot（round-robin），每个 slot 内串行
+-let rr = 0
++// ============ 队列：简单串行（OnlyOffice Document Server 内部已并发处理） ============
++let queue = Promise.resolve()
+ export function enqueueConvert(task, srcPath) {
+-  const slot = slots[rr % slots.length]
+-  rr++
+-  task._profile = slot.profile
+-  slot.chain = slot.chain
++  queue = queue
+     .then(() => runConvert(task, srcPath))
+     .catch(err => { console.error('[converter] chain error', err) })
+-  return slot.chain
++  return queue
+ }
++
++// ============ 预热（OnlyOffice 无需预热） ============
++export function warmupAll() {
++  console.log(`[converter] OnlyOffice模式，无需预热`)
++  return Promise.resolve()
++}
+\ No newline at end of file
+diff --git a/office-preview-app/web/vite.config.ts b/office-preview-app/web/vite.config.ts
+index 701d56e..6de134d 100644
+--- a/office-preview-app/web/vite.config.ts
++++ b/office-preview-app/web/vite.config.ts
+@@ -1,14 +1,94 @@
+-import { defineConfig } from 'vite'
++import { defineConfig, type Plugin } from 'vite'
+ import react from '@vitejs/plugin-react'
++import fs from 'node:fs'
++import path from 'node:path'
++import { fileURLToPath } from 'node:url'
++
++const __dirname = path.dirname(fileURLToPath(import.meta.url))
++
++/**
++ * pdfiumWasmPlugin
++ * ---------------
++ * 拦截 `@hyzyla/pdfium/browser/base64` 入口中的动态导入
++ *   `import('./pdfium.wasm.base64-B4io7kt4.js')`
++ * 默认情况下，Vite 不知道这个相对路径（hash 后缀）来自哪个模块，因此解析失败 → wasm 加载失败 → canvas 透明。
++ *
++ * 本插件在 resolveId 阶段：
++ *   1. 识别 id 形如 `pdfium.wasm.base64-*.js` 或带 `./pdfium.wasm.base64-*.js` 前缀；
++ *   2. 把它映射到 node_modules/@hyzyla/pdfium/dist/pdfium.wasm.base64-*.js 物理文件；
++ *   3. 通过 load() 读取文件内容并原样返回（base64 字符串已在文件内嵌好）。
++ */
++function pdfiumWasmPlugin(): Plugin {
++  const PLACEHOLDER_RE = /^.*?pdfium\.wasm\.base64-[A-Za-z0-9_-]+\.js$/
++  let resolvedPath: string | null = null
++
++  return {
++    name: 'pdfium-wasm-fix',
++    enforce: 'pre',
++    resolveId(id) {
++      if (PLACEHOLDER_RE.test(id)) {
++        if (!resolvedPath) {
++          const distDir = path.resolve(
++            __dirname,
++            'node_modules/@hyzyla/pdfium/dist'
++          )
++          if (!fs.existsSync(distDir)) {
++            this.warn('[pdfium-wasm-fix] dist 目录不存在：' + distDir)
++            return null
++          }
++          const files = fs.readdirSync(distDir)
++          const match = files.find(f => f.startsWith('pdfium.wasm.base64-') && f.endsWith('.js'))
++          if (!match) {
++            this.warn('[pdfium-wasm-fix] 未找到 pdfium.wasm.base64-*.js 占位文件')
++            return null
++          }
++          resolvedPath = path.join(distDir, match)
++          this.warn('[pdfium-wasm-fix] 解析占位模块 → ' + resolvedPath)
++        }
++        return '\0pdfium-wasm-base64:' + resolvedPath
++      }
++      return null
++    },
++    load(id) {
++      if (id.startsWith('\0pdfium-wasm-base64:')) {
++        const fp = id.slice('\0pdfium-wasm-base64:'.length)
++        return fs.readFileSync(fp, 'utf-8')
++      }
++      return null
++    }
++  }
++}
+ 
+ export default defineConfig({
+-  plugins: [react()],
++  plugins: [react(), pdfiumWasmPlugin()],
+   server: {
+     port: 5188,
+     proxy: {
+-      '/api': { target: 'http://localhost:5180', changeOrigin: true }
+-    }
++      '/api': { target: 'http://localhost:3210', changeOrigin: true }
++    },
++    // 关键：开发模式下不放任何 COOP/COEP，避免 Vite HMR / WebSocket 跨域问题。
++    // WASM 模式需要的 crossOriginIsolated 由 PreviewModal 给出提示，
++    // 生产环境需要时再通过部署层单独设置跨源隔离头。
++    headers: {}
++  },
++  optimizeDeps: {
++    // 关键：不要让 Vite 预先打包 @hyzyla/pdfium，
++    // 否则 esbuild 会跳过我们的 resolveId 钩子，吞掉占位模块解析
++    exclude: ['@hyzyla/pdfium', '@hyzyla/pdfium/browser/base64']
+   },
+   worker: { format: 'es' },
+-  build: { target: 'es2022', sourcemap: false }
+-})
++  build: {
++    target: 'es2022',
++    sourcemap: false,
++    rollupOptions: {
++      // 把 pdfium WASM 包拆成独立 chunk，避免主 bundle 体积膨胀
++      output: {
++        manualChunks(id) {
++          if (id.includes('@hyzyla/pdfium')) return 'pdfium-wasm'
++          if (id.includes('pdfjs-dist')) return 'pdfjs'
++          return undefined
++        }
++      }
++    }
++  }
++})
+\ No newline at end of file

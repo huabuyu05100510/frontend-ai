@@ -1,0 +1,17 @@
+{
+  "name": "@skeleton/renderer-rn",
+  "version": "1.0.0",
+  "description": "骨架屏 React Native 渲染组件",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@skeleton/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0",
+    "react-native": ">=0.71.0"
+  }
+}

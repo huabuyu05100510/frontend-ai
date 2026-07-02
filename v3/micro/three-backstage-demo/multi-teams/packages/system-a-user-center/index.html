@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>用户中心 - 团队 A</title>
+    <style>
+      body { margin: 0; font-family: -apple-system, sans-serif; background: #fff; }
+      .sa-header {
+        background: #1677ff; color: #fff; padding: 12px 24px;
+        font-size: 16px; font-weight: 600;
+        display: flex; justify-content: space-between; align-items: center;
+      }
+      .sa-badge {
+        background: rgba(255,255,255,0.2); padding: 2px 8px;
+        border-radius: 4px; font-size: 12px;
+      }
+      .sa-content { padding: 24px; }
+      .sa-title { font-size: 20px; font-weight: 600; margin: 0 0 16px; }
+      .sa-card {
+        background: #fafafa; border-radius: 8px; padding: 16px; margin-bottom: 12px;
+      }
+      .sa-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      .sa-table th, .sa-table td { padding: 10px 12px; border-bottom: 1px solid #e4e7ed; text-align: left; }
+      .sa-table th { background: #f5f7fa; font-weight: 500; }
+      .sa-link { color: #1677ff; cursor: pointer; text-decoration: none; }
+      .sa-link:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="sa-header">
+      <span>用户中心 <span class="sa-badge">独立仓库 · 团队 A</span></span>
+      <span id="auth-info"></span>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

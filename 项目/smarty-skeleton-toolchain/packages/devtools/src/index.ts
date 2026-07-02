@@ -1,0 +1,1 @@
+export { injectToolbar } from './toolbar';

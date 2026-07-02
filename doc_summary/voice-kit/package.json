@@ -1,0 +1,37 @@
+{
+  "name": "voice-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform voice interaction platform — sedimented from real ByteDance/iFlytek voice products",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "playwright": "^1.61.1",
+    "prettier": "^3.2.0",
+    "tsup": "^8.0.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "esbuild": "^0.21.5"
+    }
+  },
+  "dependencies": {
+    "@types/ws": "^8.18.1",
+    "ws": "^8.21.0"
+  }
+}

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>mupdf vs pdf.js 渲染速度对比</title>
+  <style>
+    body { font-family: monospace; padding: 16px; }
+    #log { white-space: pre; }
+    canvas { border: 1px solid #ccc; margin: 4px; display: block; max-width: 400px; }
+    .section { margin: 16px 0; }
+    label { display: block; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h2>mupdf.wasm vs pdf.js 渲染速度对比</h2>
+  <p>选择本地 PDF 文件进行测试</p>
+
+  <div class="section">
+    <label>PDF 文件：<input type="file" id="fileInput" accept=".pdf" /></label>
+    <label>
+      测试页码（0-based）：
+      <input type="number" id="pageIndex" value="0" min="0" />
+    </label>
+    <label>
+      Scale：<input type="number" id="scale" value="1.5" step="0.1" min="0.1" max="3" />
+    </label>
+    <button id="runBtn">运行对比</button>
+  </div>
+
+  <div id="log">等待文件选择...</div>
+
+  <div class="section">
+    <h3>mupdf 渲染结果</h3>
+    <canvas id="mupdfCanvas"></canvas>
+  </div>
+  <div class="section">
+    <h3>pdf.js 渲染结果</h3>
+    <canvas id="pdfjsCanvas"></canvas>
+  </div>
+
+  <script type="module">
+    // ---- mupdf ----
+    import * as mupdf from '/node_modules/mupdf/dist/mupdf.js'
+
+    // ---- pdf.js ----
+    const PDFJS_CDN = 'https://esm.sh/pdfjs-dist@4.8.69'
+    const { getDocument, GlobalWorkerOptions } = await import(`${PDFJS_CDN}`)
+    GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/build/pdf.worker.min.mjs`
+
+    function log(msg) {
+      document.getElementById('log').textContent += '\n' + msg
+    }
+
+    document.getElementById('runBtn').onclick = async () => {
+      const fileInput = document.getElementById('fileInput')
+      const pageIndex = parseInt(document.getElementById('pageIndex').value)
+      const scale = parseFloat(document.getElementById('scale').value)
+      const dpr = window.devicePixelRatio || 1
+
+      if (!fileInput.files[0]) {
+        log('请先选择 PDF 文件')
+        return
+      }
+
+      document.getElementById('log').textContent = '--- 开始测试 ---'
+      const file = fileInput.files[0]
+
+      // 读取 buffer（两个引擎各用一份）
+      const arrayBuf1 = await file.arrayBuffer()
+      const arrayBuf2 = arrayBuf1.slice(0)  // clone for pdfjs
+
+      // =====================================================================
+      // 测试 1: mupdf.wasm（Worker 内运行，这里直接主线程测量原始渲染）
+      // =====================================================================
+      log(`\n[mupdf] 页码=${pageIndex} scale=${scale} dpr=${dpr}`)
+      const mupdfStart = performance.now()
+
+      let mupdfImageData = null
+      try {
+        const doc = mupdf.Document.openDocument(arrayBuf1, 'application/pdf')
+        const page = doc.loadPage(pageIndex)
+        const matrix = mupdf.Matrix.scale(scale * dpr, scale * dpr)
+        const pixmap = page.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false)
+
+        const width = pixmap.getWidth()
+        const height = pixmap.getHeight()
+        const stride = pixmap.getStride()
+        const nComp = pixmap.getNumberOfComponents()
+        const srcPixels = pixmap.getPixels()
+
+        const data = new Uint8ClampedArray(width * height * 4)
+        for (let row = 0; row < height; row++) {
+          const srcRowStart = row * stride
+          const dstRowStart = row * width * 4
+          for (let col = 0; col < width; col++) {
+            const s = srcRowStart + col * nComp
+            const d = dstRowStart + col * 4
+            data[d]     = srcPixels[s]
+            data[d + 1] = srcPixels[s + 1]
+            data[d + 2] = srcPixels[s + 2]
+            data[d + 3] = nComp === 4 ? srcPixels[s + 3] : 255
+          }
+        }
+
+        mupdfImageData = new ImageData(data, width, height)
+
+        pixmap.destroy()
+        page.destroy()
+        doc.destroy()
+
+        const mupdfMs = (performance.now() - mupdfStart).toFixed(1)
+        log(`[mupdf] 完成: ${width}x${height} → ${mupdfMs}ms`)
+
+        const canvas = document.getElementById('mupdfCanvas')
+        canvas.width = width
+        canvas.height = height
+        canvas.style.width = `${width / dpr}px`
+        canvas.style.height = `${height / dpr}px`
+        const ctx = canvas.getContext('2d')
+        ctx.putImageData(mupdfImageData, 0, 0)
+      } catch (e) {
+        log(`[mupdf] 错误: ${e.message}`)
+      }
+
+      // =====================================================================
+      // 测试 2: pdf.js（包含 range 请求模拟，直接用 buffer）
+      // =====================================================================
+      log(`\n[pdf.js] 页码=${pageIndex} scale=${scale} dpr=${dpr}`)
+      const pdfjsStart = performance.now()
+
+      try {
+        const loadingTask = getDocument({ data: arrayBuf2, useWorkerFetch: false })
+        const pdfjsDoc = await loadingTask.promise
+        const pdfjsPage = await pdfjsDoc.getPage(pageIndex + 1)  // 1-based
+
+        const viewport = pdfjsPage.getViewport({ scale: scale * dpr })
+        const canvas = document.getElementById('pdfjsCanvas')
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+        canvas.style.width = `${viewport.width / dpr}px`
+        canvas.style.height = `${viewport.height / dpr}px`
+        const ctx = canvas.getContext('2d')
+
+        await pdfjsPage.render({ canvasContext: ctx, viewport }).promise
+
+        const pdfjsMs = (performance.now() - pdfjsStart).toFixed(1)
+        log(`[pdf.js] 完成: ${Math.round(viewport.width)}x${Math.round(viewport.height)} → ${pdfjsMs}ms`)
+      } catch (e) {
+        log(`[pdf.js] 错误: ${e.message}`)
+      }
+    }
+  </script>
+</body>
+</html>

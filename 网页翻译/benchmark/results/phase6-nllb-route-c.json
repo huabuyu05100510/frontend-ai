@@ -1,0 +1,521 @@
+{
+  "candidates": {
+    "L1H4": {
+      "avgF1": 0.8,
+      "minF1": 0.4,
+      "maxF1": 1,
+      "avgMaxAttn": 0.781,
+      "cases": [
+        {
+          "ci": 0,
+          "f1": {
+            "precision": 0.625,
+            "recall": 0.625,
+            "f1": 0.625,
+            "tp": 5,
+            "fp": 3,
+            "fn": 3,
+            "predCount": 8,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.7011059939861297,
+          "aligned": 8
+        },
+        {
+          "ci": 1,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 3,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.7649883677562078,
+          "aligned": 3
+        },
+        {
+          "ci": 2,
+          "f1": {
+            "precision": 1,
+            "recall": 0.6666666666666666,
+            "f1": 0.8,
+            "tp": 2,
+            "fp": 0,
+            "fn": 1,
+            "predCount": 2,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.721571127573649,
+          "aligned": 2
+        },
+        {
+          "ci": 3,
+          "f1": {
+            "precision": 1,
+            "recall": 0.25,
+            "f1": 0.4,
+            "tp": 1,
+            "fp": 0,
+            "fn": 3,
+            "predCount": 1,
+            "goldCount": 4
+          },
+          "avgMaxAttn": 0.8414285864148822,
+          "aligned": 1
+        },
+        {
+          "ci": 4,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 2,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 2,
+            "goldCount": 2
+          },
+          "avgMaxAttn": 0.8807215452194214,
+          "aligned": 2
+        },
+        {
+          "ci": 5,
+          "f1": {
+            "precision": 1,
+            "recall": 0.8333333333333334,
+            "f1": 0.9090909090909091,
+            "tp": 5,
+            "fp": 0,
+            "fn": 1,
+            "predCount": 5,
+            "goldCount": 6
+          },
+          "avgMaxAttn": 0.7737113870680332,
+          "aligned": 5
+        },
+        {
+          "ci": 6,
+          "f1": {
+            "precision": 0.8888888888888888,
+            "recall": 1,
+            "f1": 0.9411764705882353,
+            "tp": 8,
+            "fp": 1,
+            "fn": 0,
+            "predCount": 9,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.8279772301514944,
+          "aligned": 9
+        },
+        {
+          "ci": 7,
+          "f1": {
+            "precision": 0.6666666666666666,
+            "recall": 0.8,
+            "f1": 0.7272727272727272,
+            "tp": 4,
+            "fp": 2,
+            "fn": 1,
+            "predCount": 6,
+            "goldCount": 5
+          },
+          "avgMaxAttn": 0.7333326265215874,
+          "aligned": 6
+        }
+      ]
+    },
+    "L2H4": {
+      "avgF1": 0.743,
+      "minF1": 0.353,
+      "maxF1": 1,
+      "avgMaxAttn": 0.814,
+      "cases": [
+        {
+          "ci": 0,
+          "f1": {
+            "precision": 0.3333333333333333,
+            "recall": 0.375,
+            "f1": 0.35294117647058826,
+            "tp": 3,
+            "fp": 6,
+            "fn": 5,
+            "predCount": 9,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.6559152921040853,
+          "aligned": 9
+        },
+        {
+          "ci": 1,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 3,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.8830255170663198,
+          "aligned": 3
+        },
+        {
+          "ci": 2,
+          "f1": {
+            "precision": 0.75,
+            "recall": 1,
+            "f1": 0.8571428571428571,
+            "tp": 3,
+            "fp": 1,
+            "fn": 0,
+            "predCount": 4,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.9618926445643107,
+          "aligned": 4
+        },
+        {
+          "ci": 3,
+          "f1": {
+            "precision": 0.75,
+            "recall": 0.75,
+            "f1": 0.75,
+            "tp": 3,
+            "fp": 1,
+            "fn": 1,
+            "predCount": 4,
+            "goldCount": 4
+          },
+          "avgMaxAttn": 0.7105350622109005,
+          "aligned": 4
+        },
+        {
+          "ci": 4,
+          "f1": {
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1": 0.5,
+            "tp": 1,
+            "fp": 1,
+            "fn": 1,
+            "predCount": 2,
+            "goldCount": 2
+          },
+          "avgMaxAttn": 0.8458221137523652,
+          "aligned": 2
+        },
+        {
+          "ci": 5,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 6,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 6,
+            "goldCount": 6
+          },
+          "avgMaxAttn": 0.7992171123623848,
+          "aligned": 6
+        },
+        {
+          "ci": 6,
+          "f1": {
+            "precision": 0.8888888888888888,
+            "recall": 1,
+            "f1": 0.9411764705882353,
+            "tp": 8,
+            "fp": 1,
+            "fn": 0,
+            "predCount": 9,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.871180589000384,
+          "aligned": 9
+        },
+        {
+          "ci": 7,
+          "f1": {
+            "precision": 0.5,
+            "recall": 0.6,
+            "f1": 0.5454545454545454,
+            "tp": 3,
+            "fp": 3,
+            "fn": 2,
+            "predCount": 6,
+            "goldCount": 5
+          },
+          "avgMaxAttn": 0.7856869623064995,
+          "aligned": 6
+        }
+      ]
+    },
+    "L1H10": {
+      "avgF1": 0.811,
+      "minF1": 0.5,
+      "maxF1": 1,
+      "avgMaxAttn": 0.816,
+      "cases": [
+        {
+          "ci": 0,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 8,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 8,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.7753333767255147,
+          "aligned": 8
+        },
+        {
+          "ci": 1,
+          "f1": {
+            "precision": 1,
+            "recall": 0.6666666666666666,
+            "f1": 0.8,
+            "tp": 2,
+            "fp": 0,
+            "fn": 1,
+            "predCount": 2,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.8243222137292227,
+          "aligned": 2
+        },
+        {
+          "ci": 2,
+          "f1": {
+            "precision": 1,
+            "recall": 0.6666666666666666,
+            "f1": 0.8,
+            "tp": 2,
+            "fp": 0,
+            "fn": 1,
+            "predCount": 2,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.8674212793509165,
+          "aligned": 2
+        },
+        {
+          "ci": 3,
+          "f1": {
+            "precision": 0.75,
+            "recall": 0.75,
+            "f1": 0.75,
+            "tp": 3,
+            "fp": 1,
+            "fn": 1,
+            "predCount": 4,
+            "goldCount": 4
+          },
+          "avgMaxAttn": 0.7149568838732583,
+          "aligned": 4
+        },
+        {
+          "ci": 4,
+          "f1": {
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1": 0.5,
+            "tp": 1,
+            "fp": 1,
+            "fn": 1,
+            "predCount": 2,
+            "goldCount": 2
+          },
+          "avgMaxAttn": 0.9071879744529724,
+          "aligned": 2
+        },
+        {
+          "ci": 5,
+          "f1": {
+            "precision": 1,
+            "recall": 0.8333333333333334,
+            "f1": 0.9090909090909091,
+            "tp": 5,
+            "fp": 0,
+            "fn": 1,
+            "predCount": 5,
+            "goldCount": 6
+          },
+          "avgMaxAttn": 0.8160487487912178,
+          "aligned": 5
+        },
+        {
+          "ci": 6,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 8,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 8,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.8681845515966415,
+          "aligned": 8
+        },
+        {
+          "ci": 7,
+          "f1": {
+            "precision": 0.6666666666666666,
+            "recall": 0.8,
+            "f1": 0.7272727272727272,
+            "tp": 4,
+            "fp": 2,
+            "fn": 1,
+            "predCount": 6,
+            "goldCount": 5
+          },
+          "avgMaxAttn": 0.7541108280420303,
+          "aligned": 6
+        }
+      ]
+    },
+    "L0H15": {
+      "avgF1": 0.851,
+      "minF1": 0.667,
+      "maxF1": 1,
+      "avgMaxAttn": 0.841,
+      "cases": [
+        {
+          "ci": 0,
+          "f1": {
+            "precision": 0.6,
+            "recall": 0.75,
+            "f1": 0.6666666666666665,
+            "tp": 6,
+            "fp": 4,
+            "fn": 2,
+            "predCount": 10,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.6970463971296946,
+          "aligned": 10
+        },
+        {
+          "ci": 1,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 3,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.9533888200918833,
+          "aligned": 3
+        },
+        {
+          "ci": 2,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 3,
+            "goldCount": 3
+          },
+          "avgMaxAttn": 0.8058553338050842,
+          "aligned": 3
+        },
+        {
+          "ci": 3,
+          "f1": {
+            "precision": 0.75,
+            "recall": 0.75,
+            "f1": 0.75,
+            "tp": 3,
+            "fp": 1,
+            "fn": 1,
+            "predCount": 4,
+            "goldCount": 4
+          },
+          "avgMaxAttn": 0.8314703702926636,
+          "aligned": 4
+        },
+        {
+          "ci": 4,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 2,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 2,
+            "goldCount": 2
+          },
+          "avgMaxAttn": 0.9271492242813111,
+          "aligned": 2
+        },
+        {
+          "ci": 5,
+          "f1": {
+            "precision": 0.6666666666666666,
+            "recall": 0.6666666666666666,
+            "f1": 0.6666666666666666,
+            "tp": 4,
+            "fp": 2,
+            "fn": 2,
+            "predCount": 6,
+            "goldCount": 6
+          },
+          "avgMaxAttn": 0.8023255579173565,
+          "aligned": 6
+        },
+        {
+          "ci": 6,
+          "f1": {
+            "precision": 1,
+            "recall": 1,
+            "f1": 1,
+            "tp": 8,
+            "fp": 0,
+            "fn": 0,
+            "predCount": 8,
+            "goldCount": 8
+          },
+          "avgMaxAttn": 0.8616752848029137,
+          "aligned": 8
+        },
+        {
+          "ci": 7,
+          "f1": {
+            "precision": 0.6666666666666666,
+            "recall": 0.8,
+            "f1": 0.7272727272727272,
+            "tp": 4,
+            "fp": 2,
+            "fn": 1,
+            "predCount": 6,
+            "goldCount": 5
+          },
+          "avgMaxAttn": 0.848293736577034,
+          "aligned": 6
+        }
+      ]
+    }
+  },
+  "best": {
+    "name": "L0H15",
+    "f1": 0.851,
+    "maxAttn": 0.841
+  }
+}

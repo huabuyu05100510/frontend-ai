@@ -1,0 +1,308 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #2f81f7;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 20px 80px;
+}
+
+.app h1 {
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+.app .sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+}
+
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #21262d;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+}
+
+.badge.native {
+  background: rgba(63, 185, 80, 0.18);
+  color: var(--green);
+}
+.badge.wasm {
+  background: rgba(47, 129, 247, 0.18);
+  color: var(--accent);
+}
+.badge.server {
+  background: rgba(210, 153, 34, 0.18);
+  color: var(--yellow);
+}
+.badge.unknown,
+.badge.error {
+  background: rgba(248, 81, 73, 0.18);
+  color: var(--red);
+}
+
+.stage-track {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+.stage-seg {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: #21262d;
+  transition: background 0.2s;
+}
+.stage-seg.on {
+  background: var(--accent);
+}
+
+.viewport {
+  height: 460px;
+  overflow: auto;
+  position: relative;
+  background: #0b0e13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.page-cell {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid #1c2330;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.perf-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  background: rgba(13, 17, 23, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  backdrop-filter: blur(8px);
+  min-width: 180px;
+}
+.perf-hud .k {
+  color: var(--muted);
+}
+.perf-hud .v {
+  float: right;
+  color: var(--green);
+}
+
+button {
+  background: #21262d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover {
+  border-color: var(--accent);
+}
+
+.kv {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0;
+}
+.kv b {
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+}
+
+.annot-list {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.muted {
+  color: var(--muted);
+}
+
+/* PDF.js 文本层：透明 DOM <span> 精确贴合字形，可框选 + 复制 */
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: #000;
+}
+/* 文本层文字必须始终不可见（仅用于选区/复制）：用 !important 压过任何 UA/内联样式，
+   避免文本层字形与 canvas 字形错位叠加产生「重影」 */
+.textLayer span,
+.textLayer br {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+/* 选中态同样保持文字透明，只显示高亮底色（WebKit/Blink/Firefox 全覆盖） */
+.textLayer span::selection,
+.textLayer ::selection {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  background: rgba(47, 129, 247, 0.4);
+}
+.textLayer span::-moz-selection,
+.textLayer ::-moz-selection {
+  color: transparent !important;
+  background: rgba(47, 129, 247, 0.4);
+}
+.textLayer br::selection {
+  background: transparent;
+}
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: -1;
+  cursor: default;
+  user-select: none;
+}
+
+/* ── PDF 加载骨架屏 ── */
+@keyframes pdf-skeleton-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+.pdf-skeleton {
+  animation: pdf-skeleton-pulse 1.5s ease-in-out infinite;
+  background: var(--panel);
+  border-radius: 4px;
+}
+
+/* ── PDF 搜索输入 ── */
+.pdf-search-input {
+  flex: 1;
+  background: #21262d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.pdf-search-input:focus {
+  border-color: var(--accent);
+}
+.pdf-search-input::placeholder {
+  color: var(--muted);
+}
+
+/* ── PDF 页码输入 ── */
+.pdf-page-input {
+  width: 48px;
+  text-align: center;
+  background: #21262d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-size: 13px;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.pdf-page-input:focus {
+  border-color: var(--accent);
+}
+.pdf-page-input::-webkit-inner-spin-button,
+.pdf-page-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

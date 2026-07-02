@@ -1,0 +1,13 @@
+{
+  "name": "@smarty-skeleton-toolchain/cli",
+  "version": "0.0.1",
+  "bin": {
+    "skeleton": "dist/index.js"
+  },
+  "dependencies": {
+    "@smarty-skeleton-toolchain/dev-server": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs --dts"
+  }
+}

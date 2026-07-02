@@ -1,0 +1,39 @@
+{
+    "name": "@miaoma/email-sender",
+    "version": "1.0.0",
+    "description": "邮件发送插件 - 妙码 AI 工作流平台",
+    "type": "module",
+    "main": "dist/executor.umd.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "rollup -c",
+        "watch": "rollup -c -w",
+        "typecheck": "tsc --noEmit",
+        "clean": "rm -rf dist"
+    },
+    "keywords": [
+        "miaoma",
+        "plugin",
+        "email",
+        "smtp",
+        "workflow"
+    ],
+    "author": {
+        "name": "妙码学院",
+        "email": "support@miaomaedu.com"
+    },
+    "license": "MIT",
+    "devDependencies": {
+        "@miaoma-aiflow/plugin-core": "workspace:*",
+        "@rollup/plugin-commonjs": "^25.0.0",
+        "@rollup/plugin-node-resolve": "^15.0.0",
+        "@rollup/plugin-typescript": "^11.0.0",
+        "@types/react": "^18.0.0",
+        "react": "^18.0.0",
+        "rollup": "^4.0.0",
+        "typescript": "^5.0.0"
+    },
+    "peerDependencies": {
+        "react": "^18.0.0"
+    }
+}

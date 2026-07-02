@@ -1,0 +1,13 @@
+{
+  "name": "@voice-kit/core-types",
+  "version": "0.1.0",
+  "description": "Platform-agnostic interface contracts for voice-kit",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --dts --format esm,cjs",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  }
+}

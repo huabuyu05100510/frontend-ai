@@ -1,0 +1,50 @@
+{
+  "name": "@skeleton/toolchain",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "骨架屏构建工具链 - Vite 插件 / Taro 插件 / CLI",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "skeleton": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./vite": {
+      "import": "./dist/vite-plugin.js",
+      "types": "./dist/vite-plugin.d.ts"
+    },
+    "./taro": {
+      "import": "./dist/taro-plugin.js",
+      "types": "./dist/taro-plugin.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@skeleton/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "playwright": "^1.61.1",
+    "typescript": "^5.5.0"
+  },
+  "peerDependencies": {
+    "playwright": ">=1.40.0",
+    "vite": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  }
+}

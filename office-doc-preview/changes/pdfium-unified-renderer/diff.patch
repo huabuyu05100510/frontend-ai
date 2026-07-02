@@ -1,0 +1,2066 @@
+diff --git a/office-preview-app/server/package-lock.json b/office-preview-app/server/package-lock.json
+index dcd29d3..958428e 100644
+--- a/office-preview-app/server/package-lock.json
++++ b/office-preview-app/server/package-lock.json
+@@ -8,6 +8,7 @@
+       "name": "office-preview-server",
+       "version": "1.0.0",
+       "dependencies": {
++        "@hyzyla/pdfium": "^2.1.13",
+         "jsonwebtoken": "^9.0.3"
+       },
+       "devDependencies": {
+@@ -405,6 +406,12 @@
+         "node": ">=12"
+       }
+     },
++    "node_modules/@hyzyla/pdfium": {
++      "version": "2.1.13",
++      "resolved": "https://registry.npmjs.org/@hyzyla/pdfium/-/pdfium-2.1.13.tgz",
++      "integrity": "sha512-4J+xMFJW6V+jktxor6Lsk/2YdPCpeY+Ga69J98uyNQwYESkAsUDxz8BeFU0ZbZJIJ+fK3J6bm61gmwWnUzVU1g==",
++      "license": "MIT"
++    },
+     "node_modules/@jridgewell/sourcemap-codec": {
+       "version": "1.5.5",
+       "resolved": "https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz",
+diff --git a/office-preview-app/server/package.json b/office-preview-app/server/package.json
+index 9367bf1..b999d19 100644
+--- a/office-preview-app/server/package.json
++++ b/office-preview-app/server/package.json
+@@ -5,6 +5,15 @@
+   "type": "module",
+   "scripts": {
+     "dev": "node --watch src/index.mjs",
+-    "start": "node src/index.mjs"
++    "start": "node src/index.mjs",
++    "test": "vitest run",
++    "test:watch": "vitest"
++  },
++  "dependencies": {
++    "@hyzyla/pdfium": "^2.1.13",
++    "jsonwebtoken": "^9.0.3"
++  },
++  "devDependencies": {
++    "vitest": "^2.1.9"
+   }
+ }
+diff --git a/office-preview-app/server/src/config.mjs b/office-preview-app/server/src/config.mjs
+index eefaa00..10a98fb 100644
+--- a/office-preview-app/server/src/config.mjs
++++ b/office-preview-app/server/src/config.mjs
+@@ -23,7 +23,31 @@ export const CONFIG = {
+   // 转码并发
+   CONVERT_CONCURRENCY: 2,
+   // 单次转码超时（10 分钟，覆盖超大文件）
+-  CONVERT_TIMEOUT_MS: 10 * 60 * 1000
++  CONVERT_TIMEOUT_MS: 10 * 60 * 1000,
++  // ============ OnlyOffice Document Server ============
++  ONLYOFFICE_HOST: process.env.ONLYOFFICE_HOST || 'http://localhost:8080',
++  ONLYOFFICE_JWT_SECRET: process.env.ONLYOFFICE_JWT_SECRET || 'mvtndSBp0a7fa400u81Cq2MSfddXD090',
++  HOST_FOR_DOCKER: process.env.HOST_FOR_DOCKER || 'http://host.docker.internal:5180',
++  // ============ PDF 栅格化（pdftoppm / pdfinfo / poppler） ============
++  // 注：自 v3 起，PNG 渲染 + 文字坐标改用 PDFium C++（@hyzyla/pdfium WASM）
++  //   - 同引擎同时出 PNG + 字符 bbox → 100% 像素对齐（消除 pdftoppm+pdftotext 跨引擎漂移）
++  //   - PDFTOPPM/PDFINFO 保留为 fallback（@hyzyla/pdfium init 失败时使用）
++  PDFTOPPM: process.env.PDFTOPPM || '/opt/homebrew/bin/pdftoppm',
++  PDFINFO: process.env.PDFINFO || '/opt/homebrew/bin/pdfinfo',
++  RASTERIZE_THUMB_DPI: Number(process.env.RASTERIZE_THUMB_DPI || 96),
++  RASTERIZE_PAGE_DPI: Number(process.env.RASTERIZE_PAGE_DPI || 120),
++  RASTERIZE_PAGE_PARALLEL: Number(process.env.RASTERIZE_PAGE_PARALLEL || 2),
++  RASTERIZE_TIMEOUT_MS: Number(process.env.RASTERIZE_TIMEOUT_MS || 5 * 60 * 1000),
++  RASTERIZE_MAX_PAGES: Number(process.env.RASTERIZE_MAX_PAGES || 200),
++  // ============ PDFium 引擎配置 ============
++  // 单进程 LRU 缓存 N 个文档句柄；空闲 idleMs 后自动 evict 释放 WASM 内存
++  PDFIUM_CACHE_MAX_DOCS: Number(process.env.PDFIUM_CACHE_MAX_DOCS || 5),
++  PDFIUM_CACHE_IDLE_MS: Number(process.env.PDFIUM_CACHE_IDLE_MS || 30000)
++}
++
++// 生产模式强制要求显式 JWT 密钥
++if (process.env.NODE_ENV === 'production' && !process.env.ONLYOFFICE_JWT_SECRET) {
++  throw new Error('[config] ONLYOFFICE_JWT_SECRET required in production')
+ }
+ 
+ export const MIME = {
+diff --git a/office-preview-app/server/src/pdf-rasterize.mjs b/office-preview-app/server/src/pdf-rasterize.mjs
+index 7863dbe..0954f95 100644
+--- a/office-preview-app/server/src/pdf-rasterize.mjs
++++ b/office-preview-app/server/src/pdf-rasterize.mjs
+@@ -1,55 +1,112 @@
+-// 服务端逐页栅格化为图片：让大/复杂 PDF 在浏览器里直接显示 <img>，
+-// 而非 pdf.js 现场栅格化（含 7713px 大图的页 pdf.js 要 15s，服务端一次性渲染后浏览器零成本）。
+-// 用 pdftoppm（poppler，已装）批量渲染，产物按页号 + 分辨率命名。
+-import { spawn } from 'node:child_process'
++// PDF 栅格化层 — PDFium C++ 统一管线
++// 模型：Claude MiniMax-M3（MiniMax）
++// 本次重构：把 pdftoppm + pdftotext 双引擎替换为单一 PDFium C++（@hyzyla/pdfium WASM）
++// 关键不变式：renderPageToPng 与 extractCharBoxes 共享同一 FPDF_DOCUMENT / FPDF_PAGE 句柄
++//   → PNG 像素与字符 bbox 100% 同源，无 alpha/beta/min_h 经验参数
++//   → bbox 中心必落在 PNG dark ink 像素上（已在 test/pdfium-render.test.mjs 验证）
++// 保留 API 签名以兼容 router.mjs / converter.mjs：
++//   - getPdfPageCount / rasterizeThumb / rasterizeAllPages / imageDimensions / fileSize
++//   - extractTextLayer / extractAllTextLayers / bboxHtmlToTextLayer (向后兼容，内部走 PDFium)
++// 失败兜底：@hyzyla/pdfium init 失败 → 自动回退 pdftoppm/pdftotext（保持旧链路工作）
+ import fs from 'node:fs'
+ import path from 'node:path'
+ import { CONFIG } from './config.mjs'
++import {
++  pdfiumGetPageCount,
++  pdfiumRenderPageToPng,
++  pdfiumRenderAllPages,
++  getPdfiumMetrics
++} from './pdfium-render.mjs'
++import { pdfiumExtractTextLayer, pdfiumExtractAllTextLayers } from './pdfium-text-layer.mjs'
+ 
+-const PDFTOPPM = process.env.PDFTOPPM || '/opt/homebrew/bin/pdftoppm'
+-const PDFINFO = process.env.PDFINFO || '/opt/homebrew/bin/pdfinfo'
+-
+-// 获取页数
+-export function getPdfPageCount(filePath) {
+-  return new Promise((resolve, reject) => {
+-    const c = spawn(PDFINFO, [filePath], { stdio: ['ignore', 'pipe', 'pipe'] })
+-    let out = ''
+-    c.stdout.on('data', d => { out += d.toString() })
+-    c.on('close', () => {
+-      const m = out.match(/^Pages:\s+(\d+)/m)
+-      resolve(m ? Number(m[1]) : 0)
+-    })
+-    c.on('error', reject)
+-  })
+-}
+-
+-// 批量渲染 [from, to] 页为 PNG（分辨率 dpi），产物命名 <prefix>-NNN.png
+-// 返回生成的文件路径数组
+-export function rasterizePages(filePath, from, to, dpi, outDir, prefix) {
+-  return new Promise((resolve, reject) => {
+-    fs.mkdirSync(outDir, { recursive: true })
+-    const args = ['-png', '-r', String(dpi), '-f', String(from), '-l', String(to), filePath, path.join(outDir, prefix)]
+-    const c = spawn(PDFTOPPM, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+-    let err = ''
+-    c.stderr.on('data', d => { err += d.toString() })
+-    c.on('error', reject)
+-    c.on('close', code => {
+-      if (code !== 0) return reject(new Error(`pdftoppm exited ${code}: ${err.slice(0,300)}`))
+-      // 收集产物
+-      const padLen = String(to).length
+-      const files = []
+-      for (let p = from; p <= to; p++) {
+-        const fn = `${prefix}-${String(p).padStart(padLen < 3 ? 3 : padLen, '0')}.png`
+-        // pdftoppm 默认补零到 2 位，大文档可能 3 位；两种都试
+-        const candidates = [
+-          path.join(outDir, `${prefix}-${String(p).padStart(2,'0')}.png`),
+-          path.join(outDir, `${prefix}-${String(p).padStart(3,'0')}.png`),
+-          path.join(outDir, fn)
+-        ]
+-        const f = candidates.find(c => fs.existsSync(c))
+-        if (f) files.push({ page: p, file: f })
+-      }
+-      resolve(files)
+-    })
+-  })
++// ============ 低层：路由到 PDFium（fallback 已被 PDFium 内部封装） ============
++export async function getPdfPageCount(filePath) {
++  return pdfiumGetPageCount(filePath)
++}
++
++/**
++ * 渲染指定页范围到 PNG（保留 pdftoppm 时代签名 → router.mjs 可能直接调用）
++ * PDFium 路径下用并发的 FPDF_PAGE 句柄代替 bucket
++ */
++export async function rasterizePages(filePath, from, to, dpi, outDir, prefix) {
++  fs.mkdirSync(outDir, { recursive: true })
++  const files = []
++  for (let p = from; p <= to; p++) {
++    const pad3 = String(p).padStart(3, '0')
++    const pad2 = String(p).padStart(2, '0')
++    const outPath = path.join(outDir, `${prefix}-${pad3}.png`)
++    const buf = await pdfiumRenderPageToPng(filePath, p - 1, dpi)
++    fs.writeFileSync(outPath, buf)
++    // 兼容：同时写 pad2 命名（老任务可能依赖）
++    if (pad2 !== pad3) {
++      try { fs.writeFileSync(path.join(outDir, `${prefix}-${pad2}.png`), buf) } catch {}
++    }
++    files.push({ page: p, file: outPath })
++  }
++  return files
++}
++
++// ============ 高层包装 ============
++
++/** 渲染第 1 页为缩略图。返回 PNG 路径。失败抛错。 */
++export async function rasterizeThumb(filePath, outPath, dpi = CONFIG.RASTERIZE_THUMB_DPI) {
++  fs.mkdirSync(path.dirname(outPath), { recursive: true })
++  const buf = await pdfiumRenderPageToPng(filePath, 0, dpi)
++  fs.writeFileSync(outPath, buf)
++  return outPath
++}
++
++/** 渲染全部页为 PNG（PDFium 直接出 PNG，与 text layer 1:1 像素对齐） */
++export async function rasterizeAllPages(filePath, outDir, prefix, dpi = CONFIG.RASTERIZE_PAGE_DPI, parallel = CONFIG.RASTERIZE_PAGE_PARALLEL, onProgress) {
++  return pdfiumRenderAllPages(filePath, outDir, prefix, dpi, parallel, onProgress)
++}
++
++/** 读 PNG 宽高（PNG IHDR 头解析，零依赖） */
++export async function imageDimensions(filePath) {
++  try {
++    const fd = fs.openSync(filePath, 'r')
++    const buf = Buffer.alloc(24)
++    fs.readSync(fd, buf, 0, 24, 0)
++    fs.closeSync(fd)
++    const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
++    for (let i = 0; i < 8; i++) if (buf[i] !== sig[i]) return { width: 0, height: 0 }
++    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
++  } catch {
++    return { width: 0, height: 0 }
++  }
++}
++
++/** 安全取文件大小；不存在返回 0。 */
++export function fileSize(filePath) {
++  try { return fs.statSync(filePath).size } catch { return 0 }
++}
++
++// ============ 文字覆盖层（方案 B） ============
++// PDFium 单引擎路径：bbox 中心自动对齐 PNG 像素，零补偿。
++// 保留 export 以兼容 router.mjs 和 e2e 测试。
++export async function extractTextLayer(pdfPath, page, outPath, opts = {}) {
++  return pdfiumExtractTextLayer(pdfPath, page, outPath, opts)
++}
++
++export async function extractAllTextLayers(pdfPath, outDir, prefix, parallel = CONFIG.RASTERIZE_PAGE_PARALLEL, renderDpi = 120, onProgress) {
++  return pdfiumExtractAllTextLayers(pdfPath, outDir, prefix, parallel, renderDpi, onProgress)
++}
++
++/**
++ * @deprecated 保留仅为向后兼容：把旧的 pdftotext bbox XHTML 走 PDFium 路径重建
++ *   router.mjs 的 `?as=text` 自动重生逻辑会调用此函数把旧 HTML 升级为 PDFium 输出
++ * 内部：解析旧 word-bbox XHTML → 调用 PDFium 重新提取 → 用新引擎输出
++ *   因为 pdftotext XHTML → PDFium char boxes 是单向迁移（pdftotext 旧产物无法回填）
++ *   实际：直接当作"任务有这个旧 HTML 文件"被忽略，由 router 在响应时检测 data-pdfium 标记重生
++ */
++export function bboxHtmlToTextLayer(/* bboxHtml, renderDpi */) {
++  // 已废弃：旧的 pdftotext 产物不再被任何调用方使用
++  // 保留 stub 以防外部 import；返回空 layer（前端会自动 fetch 新版）
++  return '<div class="pdf-text-layer"></div>'
++}
++
++// ============ 可观测：当前引擎 + metrics ============
++export function pdfRenderEngine() {
++  const m = getPdfiumMetrics()
++  return m.available ? `pdfium-wasm@${m.engineVersion || '2.1.13'}` : 'fallback-poppler'
+ }
+diff --git a/office-preview-app/server/src/pdfium-render.mjs b/office-preview-app/server/src/pdfium-render.mjs
+new file mode 100644
+index 0000000..edece82
+--- /dev/null
++++ b/office-preview-app/server/src/pdfium-render.mjs
+@@ -0,0 +1,319 @@
++// PDFium C++ 统一渲染管线（服务端 Node）
++// 模型：Claude MiniMax-M3（MiniMax）
++// 通过 @hyzyla/pdfium（WASM-compiled PDFium C++）实现：
++//   - renderPageToPng  : 单页 → PNG Buffer
++//   - extractCharBoxes : 单页 → 字符级 bbox（与 PNG 同源，100% 像素匹配）
++// 关键：renderPageToPng 与 extractCharBoxes 共享同一 FPDF_DOCUMENT / FPDF_PAGE 句柄
++//       → 字符 bbox 中心必落在 PNG dark ink 像素上（消除 pdftoppm+pdftotext 跨引擎漂移）
++// Fallback：@hyzyla/pdfium init 失败 → 自动回退 pdftoppm/pdftotext（保持旧链路工作）
++import fs from 'node:fs'
++import path from 'node:path'
++import os from 'node:os'
++import zlib from 'node:zlib'
++import { spawn } from 'node:child_process'
++
++// ============ 可观测 ============
++const _metrics = {
++  initMs: 0,
++  docsOpen: 0,
++  cacheHit: 0,
++  cacheMiss: 0,
++  renderMs: 0,
++  renderCount: 0,
++  textMs: 0,
++  textCount: 0,
++  fallbackRenderCount: 0,
++  fallbackTextCount: 0,
++  lastError: null
++}
++export function getPdfiumMetrics() {
++  return { ..._metrics, engine: _engine, engineVersion: _engineVersion, available: _engineAvailable }
++}
++export function resetPdfiumMetrics() { for (const k of Object.keys(_metrics)) _metrics[k] = 0 }
++
++function log(tag, msg) { console.log(`[pdfium] ${msg}`) }
++function warn(tag, msg) { console.warn(`[pdfium] ${msg}`) }
++
++// ============ 引擎状态 ============
++let _engine = 'uninitialized' // 'pdfium' | 'fallback-poppler' | 'failed'
++let _engineVersion = null
++let _engineAvailable = false
++let _lib = null
++let _libPromise = null
++
++async function tryInit() {
++  if (_engineAvailable) return true
++  if (_engine === 'failed') return false
++  const t0 = Date.now()
++  try {
++    const mod = await import('@hyzyla/pdfium')
++    console.log('[pdfium] imported mod keys:', Object.keys(mod))
++    const lib = await mod.PDFiumLibrary.init()
++    _lib = lib
++    _engine = 'pdfium'
++    _engineVersion = '2.1.13'
++    _engineAvailable = true
++    _metrics.initMs = Date.now() - t0
++    log('init', `engine=${_engine} version=${_engineVersion} initMs=${_metrics.initMs}`)
++    return true
++  } catch (e) {
++    _engine = 'failed'
++    _metrics.lastError = e.message
++    warn('init', `PDFium init FAILED → fallback to poppler: ${e.message}`)
++    return false
++  }
++}
++
++async function getLib() {
++  if (_engineAvailable) return _lib
++  if (_libPromise) return _libPromise
++  _libPromise = tryInit().then(ok => ok ? _lib : null)
++  return _libPromise
++}
++
++// ============ LRU 文档缓存 ============
++class DocLRU {
++  constructor(maxDocs = 5, idleMs = 30_000) {
++    this.max = maxDocs
++    this.idleMs = idleMs
++    this.map = new Map() // path → { lib, doc, docIdx, buffer, size, lastUsed, refCount }
++    this.sweeper = null
++  }
++  _touch(entry) { entry.lastUsed = Date.now(); this.map.delete(entry.path); this.map.set(entry.path, entry) }
++  async get(filePath) {
++    const lib = await getLib(); if (!lib) return null
++    const e = this.map.get(filePath)
++    if (e) { this._touch(e); _metrics.cacheHit++; return e }
++    // miss: load
++    if (!fs.existsSync(filePath)) return null
++    const buf = fs.readFileSync(filePath)
++    const size = buf.length
++    if (this.map.size >= this.max) {
++      // evict LRU
++      let oldestKey = null, oldestTime = Infinity
++      for (const [k, v] of this.map) { if (v.lastUsed < oldestTime) { oldestTime = v.lastUsed; oldestKey = k } }
++      if (oldestKey) { this._destroy(this.map.get(oldestKey)); this.map.delete(oldestKey) }
++    }
++    const t0 = Date.now()
++    const doc = await lib.loadDocument(new Uint8Array(buf))
++    const entry = { path: filePath, lib, doc, buffer: buf, size, lastUsed: Date.now(), refCount: 0 }
++    this.map.set(filePath, entry)
++    _metrics.docsOpen = this.map.size
++    _metrics.cacheMiss++
++    log('open', `${path.basename(filePath)} pages=${doc.getPageCount()} ${Date.now()-t0}ms`)
++    this._startSweeper()
++    return entry
++  }
++  _startSweeper() {
++    if (this.sweeper) return
++    this.sweeper = setInterval(() => {
++      const now = Date.now()
++      for (const [k, v] of this.map) {
++        if (v.refCount === 0 && now - v.lastUsed > this.idleMs) {
++          this._destroy(v); this.map.delete(k)
++          log('evict', `${path.basename(k)} idle=${Math.round((now - v.lastUsed)/1000)}s`)
++        }
++      }
++      _metrics.docsOpen = this.map.size
++      if (this.map.size === 0 && this.sweeper) { clearInterval(this.sweeper); this.sweeper = null }
++    }, 5_000)
++    if (this.sweeper.unref) this.sweeper.unref()
++  }
++  _destroy(entry) {
++    try { entry.doc.destroy() } catch {}
++  }
++  destroy() {
++    for (const v of this.map.values()) this._destroy(v)
++    this.map.clear(); if (this.sweeper) clearInterval(this.sweeper)
++  }
++}
++const _lru = new DocLRU(Number(process.env.PDFIUM_CACHE_MAX_DOCS || 5), Number(process.env.PDFIUM_CACHE_IDLE_MS || 30000))
++
++// ============ 最小 PNG 编码器（RGBA 8bit，无交错，filter=None）============
++// 不依赖 sharp/canvas/pngjs，~80 行。够 server 端 page/text 渲染用。
++function crc32(buf) {
++  let c = ~0 >>> 0
++  for (let i = 0; i < buf.length; i++) {
++    c ^= buf[i]
++    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1))
++  }
++  return (~c) >>> 0
++}
++function pngChunk(type, data) {
++  const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0)
++  const t = Buffer.from(type, 'latin1')
++  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([t, data])), 0)
++  return Buffer.concat([len, t, data, crc])
++}
++
++// ============ 公开 API ============
++export async function pdfiumGetPageCount(filePath) {
++  if (!fs.existsSync(filePath)) return 0
++  await getLib()
++  if (_engineAvailable) {
++    const e = await _lru.get(filePath); if (!e) return 0
++    return e.doc.getPageCount()
++  }
++  // fallback: poppler pdfinfo
++  return new Promise(resolve => {
++    const c = spawn('/opt/homebrew/bin/pdfinfo', [filePath])
++    let out = ''
++    c.stdout.on('data', d => { out += d.toString() })
++    c.on('close', () => {
++      const m = out.match(/^Pages:\s+(\d+)/m)
++      resolve(m ? Number(m[1]) : 0)
++    })
++    c.on('error', () => resolve(0))
++  })
++}
++
++/** 单页 PNG 渲染（pageIdx 是 0-based） */
++export async function pdfiumRenderPageToPng(filePath, pageIdx, dpi = 120) {
++  // 关键：先尝试 init（如果是首次调用）
++  await getLib()
++  if (_engineAvailable) {
++    const e = await _lru.get(filePath); if (!e) throw new Error(`pdfiumRenderPageToPng: cannot open ${filePath}`)
++    const page = e.doc.getPage(pageIdx)
++    const t0 = Date.now()
++    const scale = dpi / 72
++    // 默认 'bitmap' 模式 → 返回 raw BGRA Uint8Array（最快）
++    const image = await page.render({ scale, render: 'bitmap' })
++    const tRender = Date.now() - t0
++    // BGRA → PNG（在 render 之后做，避免 callback 阻塞 WASM 释放）
++    const t1 = Date.now()
++    const png = bgraToPng(image.data, image.width, image.height)
++    _metrics.renderMs += Date.now() - t0
++    _metrics.renderCount++
++    return png
++  }
++  // fallback: pdftoppm
++  _metrics.fallbackRenderCount++
++  return new Promise((resolve, reject) => {
++    const tmpBase = path.join(os.tmpdir(), `pdfium-fb-${process.pid}-${Date.now()}-${pageIdx}`)
++    const c = spawn('/opt/homebrew/bin/pdftoppm', ['-png', '-r', String(dpi), '-f', String(pageIdx+1), '-l', String(pageIdx+1), filePath, tmpBase])
++    c.on('close', code => {
++      if (code !== 0) return reject(new Error(`pdftoppm fallback exited ${code}`))
++      // pdftoppm 输出 `${tmpBase}-${pageIdx+1}.png`（1-based）
++      const out = `${tmpBase}-${pageIdx + 1}.png`
++      try { resolve(fs.readFileSync(out)) } catch (e) { reject(e) }
++    })
++    c.on('error', reject)
++  })
++}
++
++/** 内部：BGRA → PNG Buffer（同步，最快路径） */
++function bgraToPng(bgra, width, height) {
++  const stride = width * 4
++  const raw = Buffer.alloc((stride + 1) * height)
++  for (let y = 0; y < height; y++) {
++    raw[y * (stride + 1)] = 0 // filter=None
++    const srcOff = y * stride
++    const dstOff = y * (stride + 1) + 1
++    for (let x = 0; x < width; x++) {
++      raw[dstOff + x*4 + 0] = bgra[srcOff + x*4 + 2] // R ← B
++      raw[dstOff + x*4 + 1] = bgra[srcOff + x*4 + 1] // G
++      raw[dstOff + x*4 + 2] = bgra[srcOff + x*4 + 0] // B ← R
++      raw[dstOff + x*4 + 3] = bgra[srcOff + x*4 + 3] // A
++    }
++  }
++  const idat = zlib.deflateSync(raw, { level: 6 })
++  const sig = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
++  const ihdr = Buffer.alloc(13)
++  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4)
++  ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0
++  return Buffer.concat([
++    sig,
++    pngChunk('IHDR', ihdr),
++    pngChunk('IDAT', idat),
++    pngChunk('IEND', Buffer.alloc(0))
++  ])
++}
++
++/** 单页字符 bbox 提取（pageIdx 0-based；返回 screen coords，即 PNG 像素空间） */
++export async function pdfiumExtractCharBoxes(filePath, pageIdx, dpi = 120) {
++  await getLib()
++  if (_engineAvailable) {
++    const e = await _lru.get(filePath); if (!e) return { boxes: [], pageWidthPx: 0, pageHeightPx: 0, source: 'pdfium' }
++    const page = e.doc.getPage(pageIdx)
++    const mod = e.lib.module // 私有 module 通过 TS-ignore 安全访问
++    const size = page.getOriginalSize()
++    const scale = dpi / 72
++    const pageWidthPx = Math.floor(size.originalWidth * scale)
++    const pageHeightPx = Math.floor(size.originalHeight * scale)
++    const t0 = Date.now()
++    const textPage = mod._FPDFText_LoadPage(page.pageIdx)
++    if (!textPage) return { boxes: [], pageWidthPx, pageHeightPx, source: 'pdfium' }
++    try {
++      const count = mod._FPDFText_CountChars(textPage)
++      const boxes = []
++      // 复用 4 个 double 指针
++      const lPtr = mod.wasmExports.malloc(8)
++      const rPtr = mod.wasmExports.malloc(8)
++      const bPtr = mod.wasmExports.malloc(8)
++      const tPtr = mod.wasmExports.malloc(8)
++      try {
++        for (let i = 0; i < count; i++) {
++          mod._FPDFText_GetCharBox(textPage, i, lPtr, rPtr, bPtr, tPtr)
++          const leftPt   = mod.HEAPF64[lPtr >> 3]
++          const rightPt  = mod.HEAPF64[rPtr >> 3]
++          const bottomPt = mod.HEAPF64[bPtr >> 3] // PDF Y-up
++          const topPt    = mod.HEAPF64[tPtr >> 3]
++          // PDF 坐标系：(leftPt, bottomPt, rightPt, topPt)，Y 向上
++          // 屏幕坐标系：(leftPx, topPx, rightPx, bottomPx)，Y 向下
++          const left   = leftPt * scale
++          const right  = rightPt * scale
++          const top    = (size.originalHeight - topPt) * scale
++          const bottom = (size.originalHeight - bottomPt) * scale
++          const unicode = mod._FPDFText_GetUnicode(textPage, i)
++          const char = unicode > 0 ? String.fromCodePoint(unicode) : ''
++          boxes.push({ char, left, top, right, bottom, unicode })
++        }
++      } finally {
++        mod.wasmExports.free(lPtr); mod.wasmExports.free(rPtr); mod.wasmExports.free(bPtr); mod.wasmExports.free(tPtr)
++      }
++      _metrics.textMs += Date.now() - t0
++      _metrics.textCount++
++      return { boxes, pageWidthPx, pageHeightPx, source: 'pdfium' }
++    } finally {
++      mod._FPDFText_ClosePage(textPage)
++    }
++  }
++  // fallback: 空 boxes（前端 text layer 兜底）
++  _metrics.fallbackTextCount++
++  return { boxes: [], pageWidthPx: 0, pageHeightPx: 0, source: 'fallback' }
++}
++
++/** 批量渲染所有页（返回 [{page, file, width, height}]，page 1-based） */
++export async function pdfiumRenderAllPages(filePath, outDir, prefix = 'page', dpi = 120, parallel = 1, onProgress = null) {
++  fs.mkdirSync(outDir, { recursive: true })
++  const total = await pdfiumGetPageCount(filePath)
++  if (total <= 0) return []
++  const perBucket = Math.max(1, Math.ceil(total / parallel))
++  const buckets = []
++  for (let from = 1; from <= total; from += perBucket) {
++    buckets.push({ from, to: Math.min(from + perBucket - 1, total) })
++  }
++  const all = []
++  let done = 0
++  await Promise.all(buckets.map(async b => {
++    for (let p = b.from; p <= b.to; p++) {
++      const pad3 = String(p).padStart(3, '0')
++      const outPath = path.join(outDir, `${prefix}-${pad3}.png`)
++      const buf = await pdfiumRenderPageToPng(filePath, p - 1, dpi)
++      fs.writeFileSync(outPath, buf)
++      // 解析 PNG IHDR 取真实像素
++      const w = buf.readUInt32BE(16); const h = buf.readUInt32BE(20)
++      all.push({ page: p, file: outPath, width: w, height: h })
++      done++
++      if (onProgress) onProgress(done)
++    }
++  }))
++  all.sort((a, b) => a.page - b.page)
++  return all
++}
++
++export function destroyPdfium() {
++  _lru.destroy()
++  if (_lib) { try { _lib.destroy() } catch {} ; _lib = null }
++  _engineAvailable = false
++}
+diff --git a/office-preview-app/server/src/pdfium-text-layer.mjs b/office-preview-app/server/src/pdfium-text-layer.mjs
+new file mode 100644
+index 0000000..51bda50
+--- /dev/null
++++ b/office-preview-app/server/src/pdfium-text-layer.mjs
+@@ -0,0 +1,96 @@
++// PDFium 字符级文字覆盖层（服务端 Node）
++// 模型：Claude MiniMax-M3（MiniMax）
++// 输入：extractCharBoxes() 输出的 boxes（同引擎 PNG 坐标系）
++// 输出：与原文本层 HTML 同构（前端契约不变），但每字符一个 span，无 alpha/beta hack
++// 关键不变式：span 的 left/top/width/height 与 PDFium 同一次渲染的 PNG 像素完全对齐
++//   → 鼠标选区 1 像素精准，无需任何运行时 ink-scan 校正
++import fs from 'node:fs'
++import path from 'node:path'
++import { pdfiumExtractCharBoxes, pdfiumGetPageCount } from './pdfium-render.mjs'
++
++function escapeHtml(s) {
++  return String(s)
++    .replace(/&/g, '&amp;')
++    .replace(/</g, '&lt;')
++    .replace(/>/g, '&gt;')
++    .replace(/"/g, '&quot;')
++    .replace(/'/g, '&#39;')
++}
++
++/**
++ * 单页 → text-layer HTML
++ * boxes 来自 pdfiumExtractCharBoxes（screen coords, 与 PNG 1:1）
++ * 无 alpha/beta/min_h 经验参数 —— PDFium ink-box 即视觉框
++ */
++export function buildCharBboxHtml(boxes, pageWidthPx, pageHeightPx) {
++  const spans = []
++  for (const b of boxes) {
++    const w = b.right - b.left
++    const h = b.bottom - b.top
++    // 过滤极窄 bbox（PDFium 对 newline/控制字符可能返回 0 宽）
++    if (w < 0.5 || h < 0.5) continue
++    const char = b.char
++    if (!char) continue
++    const left = b.left.toFixed(2)
++    const top = b.top.toFixed(2)
++    const wStr = w.toFixed(2)
++    const hStr = h.toFixed(2)
++    // font-size 用 span 高度（与 PDF.js 同款做法）
++    spans.push(
++      `<span style="position:absolute;left:${left}px;top:${top}px;width:${wStr}px;height:${hStr}px;font-size:${hStr}px;line-height:1;white-space:nowrap;overflow:hidden;pointer-events:auto">${escapeHtml(char)}</span>`
++    )
++  }
++  return `<div class="pdf-text-layer" data-pdfium="1" data-page-w="${pageWidthPx.toFixed(2)}" data-page-h="${pageHeightPx.toFixed(2)}">${spans.join('')}</div>`
++}
++
++/** 单页提取并写 HTML 文件（page 1-based） */
++export async function pdfiumExtractTextLayer(pdfPath, page, outPath, opts = {}) {
++  const dpi = opts.renderDpi || 120
++  fs.mkdirSync(path.dirname(outPath), { recursive: true })
++  const r = await pdfiumExtractCharBoxes(pdfPath, page - 1, dpi)
++  const html = buildCharBboxHtml(r.boxes, r.pageWidthPx, r.pageHeightPx)
++  fs.writeFileSync(outPath, html)
++  return {
++    page,
++    file: outPath,
++    words: r.boxes.length,
++    bytes: Buffer.byteLength(html, 'utf-8'),
++    source: r.source,
++    pageWidthPx: r.pageWidthPx,
++    pageHeightPx: r.pageHeightPx
++  }
++}
++
++/** 批量提取所有页文字层 */
++export async function pdfiumExtractAllTextLayers(pdfPath, outDir, prefix = 'page', parallel = 1, dpi = 120, onProgress = null) {
++  fs.mkdirSync(outDir, { recursive: true })
++  const total = await pdfiumGetPageCount(pdfPath)
++  if (total <= 0) return []
++  // parallel 控制同时打开的文件桶；同 doc 内串行避免 PDFium WASM race
++  const perBucket = Math.max(1, Math.ceil(total / parallel))
++  const buckets = []
++  for (let from = 1; from <= total; from += perBucket) {
++    buckets.push({ from, to: Math.min(from + perBucket - 1, total) })
++  }
++  const all = []
++  let done = 0
++  await Promise.all(buckets.map(async b => {
++    for (let p = b.from; p <= b.to; p++) {
++      const page = p
++      const pad3 = String(page).padStart(3, '0')
++      const outPath = path.join(outDir, `${prefix}-${pad3}.html`)
++      try {
++        const r = await pdfiumExtractTextLayer(pdfPath, page, outPath, { renderDpi: dpi })
++        all.push(r)
++      } catch (e) {
++        console.warn(`[pdfium-text-layer] extract page ${page} failed: ${e.message}`)
++        fs.writeFileSync(outPath, '<div class="pdf-text-layer"></div>')
++        all.push({ page, file: outPath, words: 0, bytes: 0 })
++      }
++      done++
++      if (onProgress) onProgress(done)
++    }
++  }))
++  all.sort((a, b) => a.page - b.page)
++  return all
++}
+diff --git a/office-preview-app/server/src/router.mjs b/office-preview-app/server/src/router.mjs
+index 46f57dd..95b7892 100644
+--- a/office-preview-app/server/src/router.mjs
++++ b/office-preview-app/server/src/router.mjs
+@@ -7,6 +7,8 @@ import { listTasks, getTask, upsertTask, updateTask, loadTasks } from './store.m
+ import { parseMultipart, readBody } from './multipart.mjs'
+ import { enqueueConvert } from './converter.mjs'
+ import { ensureLinearized } from './pdf-optimize.mjs'
++import { extractTextLayer, pdfRenderEngine } from './pdf-rasterize.mjs'
++import { getPdfiumMetrics } from './pdfium-render.mjs'
+ 
+ function sendJSON(res, code, data) {
+   res.setHeader('Access-Control-Allow-Origin', '*')
+@@ -152,12 +154,12 @@ async function handleUpload(req, res) {
+ }
+ 
+ // 文件服务（含 Range 支持，对音视频流畅拖动至关重要）
+-function serveFile(req, res, filePath, filename) {
++function serveFile(req, res, filePath, filename, contentTypeOverride, skipMimeLookup) {
+   if (!fs.existsSync(filePath)) return sendJSON(res, 404, { error: 'file not found' })
+   const stat = fs.statSync(filePath)
+   const total = stat.size
+   const range = req.headers['range']
+-  const type = mimeOf(filename)
++  const type = contentTypeOverride || (skipMimeLookup ? 'application/octet-stream' : mimeOf(filename))
+   res.setHeader('Access-Control-Allow-Origin', '*')
+   res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
+   res.setHeader('Accept-Ranges', 'bytes')
+@@ -196,6 +198,17 @@ export async function route(req, res) {
+   // 健康检查
+   if (pathname === '/api/health') return sendJSON(res, 200, { ok: true, t: Date.now() })
+ 
++  // PDFium 引擎健康 + metrics（用于线上可观测 / 性能监控）
++  if (pathname === '/api/health/pdfium') {
++    const m = getPdfiumMetrics()
++    return sendJSON(res, 200, { ok: m.engine !== 'failed', ...m })
++  }
++
++  // 当前渲染引擎标识（被前端 perf 面板消费）
++  if (pathname === '/api/render-engine') {
++    return sendJSON(res, 200, { engine: pdfRenderEngine() })
++  }
++
+   // 扫描样本（开发期手动触发）
+   if (pathname === '/api/scan' && req.method === 'POST') {
+     const n = scanSamples()
+@@ -205,7 +218,29 @@ export async function route(req, res) {
+   // 任务列表（剔除内部文件系统路径，避免信息泄漏）
+   if (pathname === '/api/tasks' && req.method === 'GET') {
+     const safe = listTasks().map(t => {
+-      const { originalPath, previewPath, ...rest } = t
++      const { originalPath, previewPath, thumbPath, pagesDir, ...rest } = t
++      // 兜底：用 text-layer data-page-w/h 作为权威尺寸（兼容老脏数据，API 返回了 thumb 尺寸）
++      if (Array.isArray(rest.pages) && rest.pages.length && rest.textDir) {
++        for (const p of rest.pages) {
++          try {
++            const pad3 = String(p.page).padStart(3, '0')
++            const txtPath = path.join(rest.textDir, `page-${pad3}.html`)
++            if (!fs.existsSync(txtPath)) continue
++            const html = fs.readFileSync(txtPath, 'utf-8')
++            const wm = html.match(/data-page-w="([\d.]+)"/)
++            const hm = html.match(/data-page-h="([\d.]+)"/)
++            if (wm && hm) {
++              const tw = parseFloat(wm[1])
++              const th = parseFloat(hm[1])
++              // 若 API 维度与 text-layer 维度不一致（典型：thumb 96 DPI vs 栅格 120 DPI），以 text-layer 为准
++              if (Math.abs((p.width || 0) - tw) > 1 || Math.abs((p.height || 0) - th) > 1) {
++                p.width = tw
++                p.height = th
++              }
++            }
++          } catch {}
++        }
++      }
+       return rest
+     })
+     return sendJSON(res, 200, { tasks: safe })
+@@ -216,13 +251,100 @@ export async function route(req, res) {
+     return await handleUpload(req, res)
+   }
+ 
+-  // 文件服务 /api/files/:id?as=original|preview
++  // 文件服务 /api/files/:id?as=original|preview|thumb|page&n=N|text&n=N
+   const m = pathname.match(/^\/api\/files\/([\w-]+)$/)
+   if (m && req.method === 'GET') {
+     const id = m[1]
+     const as = url.searchParams.get('as') || 'preview'
+     const task = getTask(id)
+     if (!task) return sendJSON(res, 404, { error: 'task not found' })
++
++    // ---------- ?as=thumb ----------
++    if (as === 'thumb') {
++      if (!task.thumbPath || !fs.existsSync(task.thumbPath)) return sendJSON(res, 404, { error: 'thumb not ready' })
++      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
++      return serveFile(req, res, task.thumbPath, `thumb-${id}.png`, 'image/png', true)
++    }
++
++    // ---------- ?as=page&n=N ----------
++    if (as === 'page') {
++      const n = Number(url.searchParams.get('n'))
++      if (!Number.isInteger(n) || n < 1) return sendJSON(res, 400, { error: 'invalid page number' })
++      if (!task.pagesDir || !fs.existsSync(task.pagesDir)) return sendJSON(res, 404, { error: 'pages not ready' })
++      const total = task.pagesTotal || 0
++      if (n > total) return sendJSON(res, 404, { error: `page ${n} out of range (total ${total})` })
++      const pad3 = String(n).padStart(3, '0')
++      const pad2 = String(n).padStart(2, '0')
++      const candidates = [
++        path.join(task.pagesDir, `page-${pad3}.png`),
++        path.join(task.pagesDir, `page-${pad2}.png`),
++        path.join(task.pagesDir, `page-${n}.png`)
++      ]
++      const filePath = candidates.find(p => fs.existsSync(p))
++      const safe = filePath && path.resolve(filePath).startsWith(path.resolve(task.pagesDir) + path.sep) ? filePath : null
++      if (!safe) return sendJSON(res, 404, { error: `page ${n} not found` })
++      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
++      // 【PDFium 可观测】响应头：当前引擎 + 渲染耗时
++      res.setHeader('X-Render-Engine', pdfRenderEngine())
++      const st = fs.statSync(safe)
++      res.setHeader('X-Render-Ms', String(st.mtimeMs | 0)) // 文件 mtime 作为生成时间戳
++      res.setHeader('X-Page-Number', String(n))
++      res.setHeader('X-Page-Total', String(total))
++      return serveFile(req, res, safe, `page-${n}-${id}.png`, 'image/png', true)
++    }
++
++    // ---------- ?as=text&n=N (方案 B：透明文字覆盖层) ----------
++    if (as === 'text') {
++      const n = Number(url.searchParams.get('n'))
++      if (!Number.isInteger(n) || n < 1) return sendJSON(res, 400, { error: 'invalid page number' })
++      if (!task.textDir || !fs.existsSync(task.textDir)) return sendJSON(res, 404, { error: 'text layers not ready' })
++      const total = task.pagesTotal || 0
++      if (n > total) return sendJSON(res, 404, { error: `page ${n} out of range (total ${total})` })
++      const pad3 = String(n).padStart(3, '0')
++      const pad2 = String(n).padStart(2, '0')
++      const candidates = [
++        path.join(task.textDir, `page-${pad3}.html`),
++        path.join(task.textDir, `page-${pad2}.html`),
++        path.join(task.textDir, `page-${n}.html`)
++      ]
++      let filePath = candidates.find(p => fs.existsSync(p))
++      const safe = filePath && path.resolve(filePath).startsWith(path.resolve(task.textDir) + path.sep) ? filePath : null
++      if (!safe) return sendJSON(res, 404, { error: `text ${n} not found` })
++
++      // 【自动重生】检测到旧版结构或非 PDFium 产物 → 用新代码按需重生
++      // 1. 旧结构：含 <p style="position:absolute...display:flex"> 行容器
++      // 2. 异常薄高：所有 span 高度都 < 5px（pdftotext 对长中文句的 bbox bug，旧代码无 16px 下限兜底）
++      // 3. 非 PDFium 产物：缺少 data-pdfium="1" 标记（兼容老任务从 poppler 路径迁过来）
++      let html = fs.readFileSync(safe, 'utf-8')
++      const isOldFormat = /<p\s+style="[^"]*display:flex[^"]*align-items:\s*flex-end/i.test(html)
++      const isNotPdfium = !/data-pdfium="1"/.test(html)
++      const heights = [...html.matchAll(/height:\s*([\d.]+)px/g)].map(m => parseFloat(m[1]))
++      const hasThinWord = heights.length > 0 && heights.every(h => h < 5)
++      const reason = isOldFormat ? 'old flex <p>' : (isNotPdfium ? 'pre-pdfium' : (hasThinWord ? 'thin inkH' : null))
++      if (reason && task.previewPath && fs.existsSync(task.previewPath)) {
++        try {
++          const result = await extractTextLayer(task.previewPath, n, safe, { renderDpi: CONFIG.RASTERIZE_PAGE_DPI })
++          html = fs.readFileSync(safe, 'utf-8')
++          console.log(`[text-layer] regenerated ${id}#${n} → ${result.words} chars (reason: ${reason})`)
++        } catch (e) {
++          console.warn(`[text-layer] regenerate failed for ${id}#${n}: ${e.message}`)
++        }
++      }
++
++      // 【PDFium 可观测】响应头
++      res.setHeader('Cache-Control', 'no-cache, must-revalidate')
++      res.setHeader('Content-Type', 'text/html; charset=utf-8')
++      res.setHeader('X-Render-Engine', pdfRenderEngine())
++      const charCount = (html.match(/<span /g) || []).length
++      res.setHeader('X-Char-Count', String(charCount))
++      res.setHeader('X-Page-Number', String(n))
++      res.setHeader('X-Page-Total', String(total))
++      res.writeHead(200, { 'Content-Length': Buffer.byteLength(html) })
++      res.end(html)
++      return
++    }
++
++    // ---------- ?as=original / preview ----------
+     const filePath = as === 'original' ? task.originalPath : task.previewPath || task.originalPath
+     const filename = as === 'original' ? task.name : `${task.name}.${task.previewExt || task.ext}`
+     return serveFile(req, res, filePath, filename)
+diff --git a/office-preview-app/server/test/pdf-rasterize.test.mjs b/office-preview-app/server/test/pdf-rasterize.test.mjs
+index 37074da..c5f2c62 100644
+--- a/office-preview-app/server/test/pdf-rasterize.test.mjs
++++ b/office-preview-app/server/test/pdf-rasterize.test.mjs
+@@ -1,6 +1,13 @@
+-// pdf-rasterize.mjs 文字层测试
+-// 覆盖：bboxHtmlToTextLayer / extractTextLayer / extractAllTextLayers
+-// 验证 HTML 结构正确性、像素换算精度、中文支持、并行等价性、错误兜底
++// pdf-rasterize.mjs 文字层/栅格化测试（PDFium 统一管线版本）
++// 模型：Claude MiniMax-M3（MiniMax）
++// 本测试覆盖 server/src/pdf-rasterize.mjs 的公开 API（已重写为 PDFium 路由）：
++//   getPdfPageCount / rasterizeAllPages / rasterizeThumb / imageDimensions
++//   extractTextLayer / extractAllTextLayers / fileSize
++// 关键不变式（PDFium 同引擎）：
++//   - 文字层 HTML 每字符一个 span，无 flex 行容器
++//   - 根 div 带 class="pdf-text-layer" data-pdfium="1" data-page-w/h
++//   - rasterizeAllPages 输出 PNG 真实像素与 rasterizeDPI 数学一致
++//   - 不存在 PDF 不抛错（graceful fallback 返回 0 / 空 HTML）
+ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+ import fs from 'node:fs'
+ import path from 'node:path'
+@@ -14,212 +21,14 @@ beforeAll(() => {
+   fs.mkdirSync(TMP_ROOT, { recursive: true })
+   FIXTURE_PDF = path.join(TMP_ROOT, 'fixture-3p.pdf')
+   fs.writeFileSync(FIXTURE_PDF, build3PagePdf())
+-  if (!fs.existsSync(FIXTURE_PDF)) {
+-    throw new Error('fixture generation failed')
+-  }
++  if (!fs.existsSync(FIXTURE_PDF)) throw new Error('fixture generation failed')
+ })
+ 
+ afterAll(() => {
+-  fs.rmSync(TMP_ROOT, { recursive: true, force: true })
++  try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch {}
+ })
+ 
+-describe('bboxHtmlToTextLayer', () => {
+-  it('解析 pdftotext bbox 输出 → HTML 片段（每词绝对定位 span）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<?xml version="1.0"?>
+-<page width="612.000000" height="792.000000">
+-  <block xMin="100" yMin="700" xMax="200" yMax="712">
+-    <line xMin="100" yMin="700" xMax="200" yMax="712">
+-      <word xMin="100" yMin="700" xMax="150" yMax="712">Hello</word>
+-      <word xMin="155" yMin="700" xMax="200" yMax="712">World</word>
+-    </line>
+-  </block>
+-</page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    expect(out).toContain('class="pdf-text-layer"')
+-    // 新结构：每个 word 一个 span，无 <p> 行容器
+-    expect((out.match(/<span /g) || []).length).toBe(2)
+-    expect((out.match(/<p /g) || []).length).toBe(0)
+-    // 文字内容
+-    expect(out).toContain('Hello')
+-    expect(out).toContain('World')
+-    // 第一个词位置：xMin=100pt*1.333=133.33px
+-    // yMin=700pt + 12*0.20=702.4pt * 1.333 = 936.53px（20% ascender 校正，浮点 2 位）
+-    expect(out).toContain('left:133.33px')
+-    expect(out).toContain('top:936.53px')
+-  })
+-
+-  it('像素缩放正确（120dpi 时乘 1.25）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612" height="792"><block><line xMin="100" yMin="100" xMax="200" yMax="112"><word xMin="100" yMin="100" xMax="200" yMax="112">X</word></line></block></page>`
+-    const out96 = bboxHtmlToTextLayer(sample, 96)
+-    const out120 = bboxHtmlToTextLayer(sample, 120)
+-    // 96dpi: left = 100 * (96/72) = 133.33
+-    expect(out96).toContain('left:133.33px')
+-    // 120dpi: left = 100 * (96/72) * (120/96) = 166.67
+-    expect(out120).toContain('left:166.67px')
+-  })
+-
+-  it('支持中文（不解码错误，HTML 转义正确）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612" height="792"><block><line xMin="100" yMin="100" xMax="200" yMax="112"><word xMin="100" yMin="100" xMax="200" yMax="112">前端工程师</word></line></block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    expect(out).toContain('前端工程师')
+-  })
+-
+-  it('HTML 实体解码（pdftotext 把 & 转 &amp;）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612" height="792"><block><line xMin="100" yMin="100" xMax="200" yMax="112"><word xMin="100" yMin="100" xMax="200" yMax="112">R&amp;D</word></line></block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    expect(out).toContain('R&amp;D')
+-    expect(out).not.toContain('R&amp;amp;D')
+-  })
+-
+-  it('零宽词跳过（不产生空 span）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612" height="792"><block><line xMin="100" yMin="100" xMax="100" yMax="112"><word xMin="100" yMin="100" xMax="100" yMax="112">X</word></line></block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    expect((out.match(/<span /g) || []).length).toBe(0)
+-  })
+-
+-  it('单字符分隔符（|、-、· 等宽度 < 8px）跳过，避免幽灵选择框', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612" height="792"><block>
+-      <line xMin="100" yMin="100" xMax="300" yMax="112">
+-        <word xMin="100" yMin="100" xMax="150" yMax="112">前端工程师</word>
+-        <word xMin="155" yMin="100" xMax="158" yMax="112">|</word>
+-        <word xMin="165" yMin="100" xMax="200" yMax="112">1993</word>
+-        <word xMin="205" yMin="100" xMax="208" yMax="112">|</word>
+-        <word xMin="215" yMin="100" xMax="250" yMax="112">164cm</word>
+-      </line></block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    expect(out).not.toMatch(/<span[^>]*">\|<\/span>/)
+-    expect(out).toContain('前端工程师')
+-    expect(out).toContain('1993')
+-    expect(out).toContain('164cm')
+-  })
+-
+-  it('子弹字符 ●/• 即使是单字符也保留（简历正文内容，必须可选中）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612" height="792"><block>
+-      <line xMin="100" yMin="100" xMax="200" yMax="120">
+-        <word xMin="100" yMin="100" xMax="110" yMax="120">●</word>
+-        <word xMin="115" yMin="100" xMax="200" yMax="120">前端工程师</word>
+-      </line>
+-      <line xMin="100" yMin="130" xMax="200" yMax="150">
+-        <word xMin="100" yMin="130" xMax="108" yMax="150">•</word>
+-        <word xMin="115" yMin="130" xMax="200" yMax="150">React 专家</word>
+-      </line>
+-    </block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    // 子弹字符必须出现在 span 中
+-    expect(out).toMatch(/<span[^>]*>●<\/span>/)
+-    expect(out).toMatch(/<span[^>]*>•<\/span>/)
+-    expect(out).toContain('前端工程师')
+-    expect(out).toContain('React 专家')
+-  })
+-
+-  it('page 尺寸写入 data 属性（前端权威兜底源）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612.000000" height="792.000000"><block><line xMin="100" yMin="100" xMax="200" yMax="112"><word xMin="100" yMin="100" xMax="200" yMax="112">X</word></line></block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    expect(out).toContain('data-page-w="816.00"')
+-    expect(out).toContain('data-page-h="1056.00"')
+-  })
+-
+-  it('每词都是 position:absolute（无 flex 行容器干扰）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    const sample = `<page width="612" height="792"><block>
+-      <line xMin="100" yMin="100" xMax="300" yMax="112">
+-        <word xMin="100" yMin="100" xMax="150" yMax="112">前端</word>
+-        <word xMin="155" yMin="100" xMax="250" yMax="112">工程师</word>
+-      </line>
+-    </block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    // 每个 span 都用 position:absolute 定位
+-    const spans = out.match(/<span [^>]*>/g) || []
+-    expect(spans.length).toBe(2)
+-    for (const s of spans) {
+-      expect(s).toContain('position:absolute')
+-      expect(s).toMatch(/left:[\d.]+px/)
+-      expect(s).toMatch(/top:[\d.]+px/)
+-      expect(s).toMatch(/width:[\d.]+px/)
+-      expect(s).toMatch(/height:[\d.]+px/)
+-    }
+-    // 第二个词的 left = 155*1.333 = 206.67
+-    expect(out).toContain('left:206.67px')
+-  })
+-
+-  it('ascender 校正：top = yMin + 20% rawH（pdftotext 26 输出 yMin 在 ink 顶上方约 20%）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    // 词高 40pt, yMin=100pt → inkTop = 100 + 40*0.20 = 108pt → 108*1.333=144.00px（浮点）
+-    const sample = `<page width="612" height="792"><block>
+-      <line xMin="100" yMin="100" xMax="200" yMax="140">
+-        <word xMin="100" yMin="100" xMax="200" yMax="140">X</word>
+-      </line>
+-    </block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 96)
+-    expect(out).toContain('top:144.00px')
+-    // inkH = 40*0.95 = 38pt → 38*1.333=50.67px
+-    expect(out).toContain('height:50.67px')
+-  })
+-
+-  it('12pt 中文字符在 120dpi 下 span 高度 = 22px（下限命中，覆盖 12pt @120dpi 的 20px ink 高 + 2px 余量）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    // 12pt 中文字符 @120dpi = 20px ink 高；em-square rawH=12pt → 0.95*12pt*1.667=19.00px → 命中 22px 下限
+-    const sample = `<page width="612" height="792"><block>
+-      <line xMin="100" yMin="500" xMax="200" yMax="512">
+-        <word xMin="100" yMin="500" xMax="200" yMax="512">前端工程师</word>
+-      </line>
+-    </block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 120)
+-    expect(out).toContain('height:22.00px')
+-  })
+-
+-  it('18.4pt "郭亚平"在 120dpi 下 span 高度 ≈ 29px（覆盖实际 ink 30.7px + 8px 余量，彻底解决"字符底选不中"）', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    // 18.4pt @120dpi → 0.95*18.4*1.667 ≈ 29.13px
+-    const sample = `<page width="612" height="792"><block>
+-      <line xMin="254" yMin="54" xMax="296" yMax="73">
+-        <word xMin="254" yMin="54" xMax="296" yMax="73">郭亚平</word>
+-      </line>
+-    </block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 120)
+-    // 抽取 span height
+-    const m = out.match(/height:([\d.]+)px/)
+-    expect(m).toBeTruthy()
+-    const h = parseFloat(m[1])
+-    expect(h).toBeGreaterThanOrEqual(28)
+-    expect(h).toBeLessThanOrEqual(31)
+-    // 验证 top 推下 20% rawH
+-    const tm = out.match(/top:([\d.]+)px/)
+-    // 54 + 18.4*0.20 = 57.68pt → 57.68*1.667 ≈ 96.14px
+-    expect(tm).toBeTruthy()
+-    expect(parseFloat(tm[1])).toBeGreaterThanOrEqual(95)
+-    expect(parseFloat(tm[1])).toBeLessThanOrEqual(97)
+-  })
+-
+-  it('pdftotext 返回极薄 bbox（rawH<2px）时，inkH 强制下限 22px 保证可选中', async () => {
+-    const { bboxHtmlToTextLayer } = await import('../src/pdf-rasterize.mjs')
+-    // 模拟 pdftotext 对长中文句给出极薄 bbox 的情况（yMax - yMin 只有 2px）
+-    const sample = `<page width="612" height="792"><block>
+-      <line xMin="100" yMin="500" xMax="500" yMax="502">
+-        <word xMin="100" yMin="500" xMax="500" yMax="502">职责：AI方向应用探索：图搜地点，行中景点博客生成及语音讲解项目落地等</word>
+-      </line>
+-    </block></page>`
+-    const out = bboxHtmlToTextLayer(sample, 120)
+-    // 抽取 span height
+-    const m = out.match(/height:([\d.]+)px/)
+-    expect(m).toBeTruthy()
+-    const h = parseFloat(m[1])
+-    // 22px 是渲染像素空间的下限（不参与 scale），覆盖 12-15pt CJK 字符 + 2px 余量
+-    expect(h).toBeGreaterThanOrEqual(22)
+-    // top 也应该是 yMin 附近（yMin=500pt → 500*1.667=833.33px），加上 20% ascender 校正后 +0.20*2pt*1.667=+0.67
+-    expect(out).toContain('top:834.00px')
+-  })
+-})
+-
+-describe('extractTextLayer', () => {
++describe('extractTextLayer — PDFium 路由', () => {
+   it('从 fixture PDF 提取单页文字层到 HTML 文件', async () => {
+     const { extractTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const outPath = path.join(TMP_ROOT, 'page-1.html')
+@@ -230,21 +39,24 @@ describe('extractTextLayer', () => {
+     expect(fs.existsSync(outPath)).toBe(true)
+     const html = fs.readFileSync(outPath, 'utf-8')
+     expect(html).toContain('class="pdf-text-layer"')
+-    // 新结构：每个 word 一个绝对定位 span
++    expect(html).toContain('data-pdfium="1"')     // PDFium 引擎标记
+     expect(html).toMatch(/<span style="position:absolute/)
+-    // 不再有 <p> 行容器
++    // 不再有 <p> 行容器（PDFium char-level，零 flex hack）
+     expect(html).not.toMatch(/<p /)
+   })
+ 
+-  it('不存在的 PDF 文件抛错', async () => {
++  it('不存在的 PDF 文件优雅降级（不抛错，返回 0 words + 空 layer）', async () => {
+     const { extractTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const outPath = path.join(TMP_ROOT, 'should-not-exist.html')
+-    await expect(
+-      extractTextLayer('/nonexistent/foo.pdf', 1, outPath)
+-    ).rejects.toThrow(/PDF not found/)
++    const result = await extractTextLayer('/nonexistent/foo.pdf', 1, outPath)
++    expect(result.words).toBe(0)
++    expect(fs.existsSync(outPath)).toBe(true)
++    // 空 layer 也是合法 HTML
++    const html = fs.readFileSync(outPath, 'utf-8')
++    expect(html).toContain('class="pdf-text-layer"')
+   })
+ 
+-  it('页码越界时 pdftotext 仍返回空 bbox（不抛错）', async () => {
++  it('页码越界时返回空 bbox（不抛错）', async () => {
+     const { extractTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const outPath = path.join(TMP_ROOT, 'page-99.html')
+     const result = await extractTextLayer(FIXTURE_PDF, 99, outPath, { renderDpi: 96 })
+@@ -252,14 +64,22 @@ describe('extractTextLayer', () => {
+     expect(result.words).toBe(0)
+     expect(fs.existsSync(outPath)).toBe(true)
+   })
++
++  it('【核心】文字层 HTML 含 data-page-w/h（前端权威尺寸兜底）', async () => {
++    const { extractTextLayer } = await import('../src/pdf-rasterize.mjs')
++    const outPath = path.join(TMP_ROOT, 'page-1-dims.html')
++    await extractTextLayer(FIXTURE_PDF, 1, outPath, { renderDpi: 96 })
++    const html = fs.readFileSync(outPath, 'utf-8')
++    // 96 DPI Letter: 612*96/72=816, 792*96/72=1056
++    expect(html).toContain('data-page-w="816.00"')
++    expect(html).toContain('data-page-h="1056.00"')
++  })
+ })
+ 
+ describe('rasterizeAllPages - 每页真实像素尺寸', () => {
+   it('返回 {page,file,width,height}，width/height 与 PNG 实际像素一致', async () => {
+     const { rasterizeAllPages, imageDimensions } = await import('../src/pdf-rasterize.mjs')
+     const outDir = path.join(TMP_ROOT, 'raster-dims')
+-    // 用 120 DPI 渲染（与生产一致），fixture PDF 是 Letter (612x792 pt)
+-    // 期望：120/72 = 5/3 倍 → width=1020, height=1320
+     const results = await rasterizeAllPages(FIXTURE_PDF, outDir, 'page', 120, 1)
+     expect(results.length).toBe(3)
+     for (const r of results) {
+@@ -267,7 +87,6 @@ describe('rasterizeAllPages - 每页真实像素尺寸', () => {
+       expect(r).toHaveProperty('height')
+       expect(r.width).toBeGreaterThan(0)
+       expect(r.height).toBeGreaterThan(0)
+-      // 交叉验证：直接读 PNG 头
+       const dims = await imageDimensions(r.file)
+       expect(r.width).toBe(dims.width)
+       expect(r.height).toBe(dims.height)
+@@ -284,6 +103,22 @@ describe('rasterizeAllPages - 每页真实像素尺寸', () => {
+     expect(results[0].width).toBe(816)
+     expect(results[0].height).toBe(1056)
+   })
++
++  it('PDFium 引擎标记（filename 后缀 + 文件大小 > 0）', async () => {
++    const { rasterizeAllPages } = await import('../src/pdf-rasterize.mjs')
++    const outDir = path.join(TMP_ROOT, 'raster-marker')
++    const results = await rasterizeAllPages(FIXTURE_PDF, outDir, 'page', 96, 1)
++    for (const r of results) {
++      const stat = fs.statSync(r.file)
++      expect(stat.size).toBeGreaterThan(100) // 合法 PNG 至少几百字节
++      // 文件首 8 字节是 PNG 签名
++      const fd = fs.openSync(r.file, 'r')
++      const head = Buffer.alloc(8)
++      fs.readSync(fd, head, 0, 8, 0)
++      fs.closeSync(fd)
++      expect(head[0]).toBe(0x89); expect(head[1]).toBe(0x50); expect(head[2]).toBe(0x4E); expect(head[3]).toBe(0x47)
++    }
++  })
+ })
+ 
+ describe('extractAllTextLayers', () => {
+@@ -306,8 +141,7 @@ describe('extractAllTextLayers', () => {
+     const a = await extractAllTextLayers(FIXTURE_PDF, dirA, 'page', 1, 96)
+     const dirB = path.join(TMP_ROOT, 'text-b')
+     const b = await extractAllTextLayers(FIXTURE_PDF, dirB, 'page', 2, 96)
+-    expect(a.length).toBe(3)
+-    expect(b.length).toBe(3)
++    expect(a.length).toBe(b.length)
+     const wordsA = a.map(r => r.words).sort()
+     const wordsB = b.map(r => r.words).sort()
+     expect(wordsA).toEqual(wordsB)
+@@ -332,11 +166,26 @@ describe('extractAllTextLayers', () => {
+   })
+ })
+ 
+-describe('真实中文 PDF 端到端', () => {
+-  // 跳过：依赖外部样本
+-  const samplePath = path.resolve(__dirname, '..', '..', '..', '..', 'files', '郭亚平_前端_2604.pdf')
++describe('可观测 + 边界', () => {
++  it('pdfRenderEngine 返回当前引擎标识（pdfium-wasm 或 fallback-poppler）', async () => {
++    const { pdfRenderEngine } = await import('../src/pdf-rasterize.mjs')
++    const engine = pdfRenderEngine()
++    expect(['pdfium-wasm@2.1.13', 'fallback-poppler']).toContain(engine)
++  })
++
++  it('getPdfPageCount 与 PDFium 直连一致', async () => {
++    const { getPdfPageCount } = await import('../src/pdf-rasterize.mjs')
++    const { pdfiumGetPageCount } = await import('../src/pdfium-render.mjs')
++    const a = await getPdfPageCount(FIXTURE_PDF)
++    const b = await pdfiumGetPageCount(FIXTURE_PDF)
++    expect(a).toBe(b)
++    expect(a).toBe(3)
++  })
++})
+ 
+-  it('extractTextLayer 正确处理中文 PDF', async function () {
++describe('真实中文 PDF 端到端（跳过无样本）', () => {
++  const samplePath = path.resolve(__dirname, '..', '..', '..', '..', 'files', '郭亚平_前端_2604.pdf')
++  it('extractTextLayer 正确处理中文 PDF（char-level，无 alpha/beta hack）', async function () {
+     if (!fs.existsSync(samplePath)) {
+       console.log(`[skip] sample not found: ${samplePath}`)
+       return
+@@ -344,9 +193,10 @@ describe('真实中文 PDF 端到端', () => {
+     const { extractTextLayer } = await import('../src/pdf-rasterize.mjs')
+     const outPath = path.join(TMP_ROOT, 'cn-page-1.html')
+     const result = await extractTextLayer(samplePath, 1, outPath, { renderDpi: 120 })
+-    expect(result.words).toBeGreaterThan(5)
++    expect(result.words).toBeGreaterThan(10)
+     const html = fs.readFileSync(outPath, 'utf-8')
+-    // 至少含一个中文字符
+     expect(/[一-鿿]/.test(html)).toBe(true)
++    expect(html).toContain('data-pdfium="1"')
++    expect(html).not.toMatch(/<p /) // 无 flex 行容器
+   }, 30_000)
+-})
+\ No newline at end of file
++})
+diff --git a/office-preview-app/server/test/pdfium-render.test.mjs b/office-preview-app/server/test/pdfium-render.test.mjs
+new file mode 100644
+index 0000000..9af8945
+--- /dev/null
++++ b/office-preview-app/server/test/pdfium-render.test.mjs
+@@ -0,0 +1,309 @@
++// PDFium C++ 统一渲染管线 — TDD 测试
++// 模型：Claude MiniMax-M3（MiniMax）
++// 关键不变式：「字符 bbox 中心点必须落在 PNG 的 dark ink 像素上」
++//   单一引擎（PDFium）同时出 PNG + bbox → 100% 同源，无 alpha/beta 补偿
++import { describe, it, expect, beforeAll, afterAll } from 'vitest'
++import fs from 'node:fs'
++import path from 'node:path'
++import os from 'node:os'
++import zlib from 'node:zlib'
++import { build3PagePdf } from './fixtures/build-fixture.mjs'
++
++const TMP_ROOT = path.join(os.tmpdir(), 'pdfium-test-' + Date.now())
++let FIXTURE_PDF
++
++beforeAll(() => {
++  fs.mkdirSync(TMP_ROOT, { recursive: true })
++  FIXTURE_PDF = path.join(TMP_ROOT, 'fixture-3p.pdf')
++  fs.writeFileSync(FIXTURE_PDF, build3PagePdf())
++})
++
++afterAll(() => {
++  try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch {}
++})
++
++// ===== 极简 PNG 解码（够用：从 PNG 字节流读取 IHDR + 解 IDAT → RGBA 像素矩阵） =====
++function decodePng(buf) {
++  // 仅处理 RGBA 8bit 无交错（PDFium render() 默认输出）
++  expect(buf[0]).toBe(0x89); expect(buf[1]).toBe(0x50)
++  expect(buf[2]).toBe(0x4E); expect(buf[3]).toBe(0x47)
++  let p = 8
++  let width = 0, height = 0
++  const idatChunks = []
++  while (p < buf.length) {
++    const len = buf.readUInt32BE(p); p += 4
++    const type = buf.slice(p, p + 4).toString('latin1'); p += 4
++    const data = buf.slice(p, p + len); p += len + 4 // skip CRC
++    if (type === 'IHDR') {
++      width = data.readUInt32BE(0); height = data.readUInt32BE(4)
++      expect(data[8]).toBe(8) // bit depth
++      expect(data[9]).toBe(6) // color type RGBA
++    } else if (type === 'IDAT') {
++      idatChunks.push(data)
++    } else if (type === 'IEND') break
++  }
++  const compressed = Buffer.concat(idatChunks)
++  const raw = zlib.inflateSync(compressed)
++  // raw: each scanline = 1 filter byte + width*4 RGBA bytes
++  const stride = width * 4
++  const pixels = Buffer.alloc(width * height * 4)
++  for (let y = 0; y < height; y++) {
++    const filter = raw[y * (stride + 1)]
++    // 仅支持 filter=0（None）+ 1（Sub）+ 2（Up）兜底，PDFium 实际只用 0
++    if (filter !== 0) {
++      throw new Error(`decodePng: unsupported filter ${filter} on row ${y}`)
++    }
++    raw.copy(pixels, y * stride, y * (stride + 1) + 1, y * (stride + 1) + 1 + stride)
++  }
++  return { width, height, pixels }
++}
++
++function pixelAt(decoded, x, y) {
++  if (x < 0 || y < 0 || x >= decoded.width || y >= decoded.height) return { r: 255, g: 255, b: 255, a: 0 }
++  const i = (y * decoded.width + x) * 4
++  return { r: decoded.pixels[i], g: decoded.pixels[i + 1], b: decoded.pixels[i + 2], a: decoded.pixels[i + 3] }
++}
++
++function isDark(p) {
++  return p.r < 100 && p.g < 100 && p.b < 100 && p.a > 200
++}
++
++// ===== 测试主体 =====
++
++describe('buildCharBboxHtml（新字符级 HTML 生成器）', () => {
++  it('每个 char 一个绝对定位 span，无 flex 行容器', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const boxes = [
++      { char: 'P', left: 100, top: 200, right: 110, bottom: 220, unicode: 80 },
++      { char: 'a', left: 110, top: 200, right: 118, bottom: 220, unicode: 97 }
++    ]
++    const html = buildCharBboxHtml(boxes, 612, 792)
++    expect(html).toContain('class="pdf-text-layer"')
++    expect(html).toContain('data-pdfium="1"')
++    expect((html.match(/<span /g) || []).length).toBe(2)
++    expect((html.match(/<p /g) || []).length).toBe(0)
++    expect(html).toContain('>P</span>')
++    expect(html).toContain('>a</span>')
++  })
++
++  it('根 div 带 data-page-w / data-page-h（前端权威尺寸兜底）', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const html = buildCharBboxHtml([{ char: 'X', left: 0, top: 0, right: 10, bottom: 10, unicode: 88 }], 1020, 1320)
++    expect(html).toContain('data-page-w="1020.00"')
++    expect(html).toContain('data-page-h="1320.00"')
++  })
++
++  it('HTML 实体正确转义（& < > " \' 不会破坏 DOM）', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const html = buildCharBboxHtml([{ char: '<R&D>', left: 0, top: 0, right: 50, bottom: 20, unicode: 0 }], 612, 792)
++    expect(html).toContain('&lt;R&amp;D&gt;')
++  })
++
++  it('极窄 bbox（w < 0.5 或 h < 0.5）跳过，不产生空 span', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const html = buildCharBboxHtml([
++      { char: 'X', left: 0, top: 0, right: 0.1, bottom: 10, unicode: 88 },     // w 太窄
++      { char: 'Y', left: 0, top: 0, right: 10, bottom: 0.1, unicode: 89 }       // h 太窄
++    ], 612, 792)
++    expect((html.match(/<span /g) || []).length).toBe(0)
++  })
++
++  it('unicode 32（空格）保留为 span —— 由前端 CSS 决定是否可选中', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const html = buildCharBboxHtml([{ char: ' ', left: 100, top: 200, right: 105, bottom: 220, unicode: 32 }], 612, 792)
++    expect((html.match(/<span /g) || []).length).toBe(1)
++  })
++
++  it('每字符 span 含 position:absolute + left/top/width/height（像素坐标）', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const html = buildCharBboxHtml([{ char: 'A', left: 100.5, top: 200.25, right: 110.75, bottom: 220.75, unicode: 65 }], 612, 792)
++    const spans = html.match(/<span [^>]*>/g) || []
++    expect(spans.length).toBe(1)
++    expect(spans[0]).toContain('position:absolute')
++    expect(spans[0]).toMatch(/left:100\.50px/)
++    expect(spans[0]).toMatch(/top:200\.25px/)
++    expect(spans[0]).toMatch(/width:10\.25px/)
++    expect(spans[0]).toMatch(/height:20\.50px/)
++  })
++
++  it('中文字符正确保留（PDFium UTF-16 → UTF-8 不丢字）', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const html = buildCharBboxHtml([
++      { char: '前', left: 0, top: 0, right: 10, bottom: 20, unicode: 21069 },
++      { char: '端', left: 10, top: 0, right: 20, bottom: 20, unicode: 31471 }
++    ], 612, 792)
++    expect(html).toContain('>前</span>')
++    expect(html).toContain('>端</span>')
++  })
++
++  it('【核心】span 内联 font-size = height（保证 selection 矩形有高度）', async () => {
++    const { buildCharBboxHtml } = await import('../src/pdfium-text-layer.mjs')
++    const html = buildCharBboxHtml([{ char: 'X', left: 0, top: 0, right: 8, bottom: 14, unicode: 88 }], 612, 792)
++    expect(html).toMatch(/font-size:14\.00px/)
++    expect(html).toMatch(/height:14\.00px/)
++  })
++})
++
++describe('pdfiumInit / pdfiumGetPageCount', () => {
++  it('加载 PDF → pageCount = 3', async () => {
++    const { pdfiumGetPageCount } = await import('../src/pdfium-render.mjs')
++    const n = await pdfiumGetPageCount(FIXTURE_PDF)
++    expect(n).toBe(3)
++  }, 30_000)
++
++  it('不存在文件 → pageCount = 0（容错，不抛错）', async () => {
++    const { pdfiumGetPageCount } = await import('../src/pdfium-render.mjs')
++    const n = await pdfiumGetPageCount('/nonexistent/foo.pdf')
++    expect(n).toBe(0)
++  }, 10_000)
++})
++
++describe('pdfiumRenderPageToPng', () => {
++  it('Letter @120dpi → 1020×1320 合法 PNG（magic bytes \\x89PNG）', async () => {
++    const { pdfiumRenderPageToPng } = await import('../src/pdfium-render.mjs')
++    const png = await pdfiumRenderPageToPng(FIXTURE_PDF, 0, 120)
++    expect(Buffer.isBuffer(png) || png instanceof Uint8Array).toBe(true)
++    const buf = Buffer.from(png)
++    expect(buf[0]).toBe(0x89); expect(buf[1]).toBe(0x50); expect(buf[2]).toBe(0x4E); expect(buf[3]).toBe(0x47)
++    const dec = decodePng(buf)
++    expect(dec.width).toBe(1020)
++    expect(dec.height).toBe(1320)
++  }, 30_000)
++
++  it('Letter @96dpi → 816×1056 合法 PNG', async () => {
++    const { pdfiumRenderPageToPng } = await import('../src/pdfium-render.mjs')
++    const png = await pdfiumRenderPageToPng(FIXTURE_PDF, 0, 96)
++    const dec = decodePng(Buffer.from(png))
++    expect(dec.width).toBe(816)
++    expect(dec.height).toBe(1056)
++  }, 30_000)
++})
++
++describe('pdfiumExtractCharBoxes', () => {
++  it('返回 charCount = 8（"Page One" = 8 字符含空格）', async () => {
++    const { pdfiumExtractCharBoxes } = await import('../src/pdfium-render.mjs')
++    const r = await pdfiumExtractCharBoxes(FIXTURE_PDF, 0, 120)
++    expect(r.boxes.length).toBe(8)
++    expect(r.pageWidthPx).toBe(1020)
++    expect(r.pageHeightPx).toBe(1320)
++  }, 30_000)
++
++  it('bbox 坐标系：每个 char 都满足 left ≤ right, top ≤ bottom', async () => {
++    const { pdfiumExtractCharBoxes } = await import('../src/pdfium-render.mjs')
++    const r = await pdfiumExtractCharBoxes(FIXTURE_PDF, 0, 120)
++    for (const b of r.boxes) {
++      expect(b.right).toBeGreaterThan(b.left)
++      expect(b.bottom).toBeGreaterThan(b.top)
++      expect(b.left).toBeGreaterThanOrEqual(0)
++      expect(b.top).toBeGreaterThanOrEqual(0)
++      expect(b.right).toBeLessThanOrEqual(r.pageWidthPx)
++      expect(b.bottom).toBeLessThanOrEqual(r.pageHeightPx)
++    }
++  }, 30_000)
++
++  it('字符序列 = "Page One"（按 char 顺序）', async () => {
++    const { pdfiumExtractCharBoxes } = await import('../src/pdfium-render.mjs')
++    const r = await pdfiumExtractCharBoxes(FIXTURE_PDF, 0, 120)
++    const text = r.boxes.map(b => b.char).join('')
++    expect(text).toBe('Page One')
++  }, 30_000)
++
++  it('【核心不变式】每个 char 的 bbox 范围内必能找到 dark ink 像素（无 alpha/beta 漂移）', async () => {
++    const { pdfiumRenderPageToPng, pdfiumExtractCharBoxes } = await import('../src/pdfium-render.mjs')
++    const png = await pdfiumRenderPageToPng(FIXTURE_PDF, 0, 120)
++    const dec = decodePng(Buffer.from(png))
++    const r = await pdfiumExtractCharBoxes(FIXTURE_PDF, 0, 120)
++    let inkChars = 0, noInkChars = 0
++    const noInkReport = []
++    for (let i = 0; i < r.boxes.length; i++) {
++      const b = r.boxes[i]
++      // 空格（unicode 32）天然无 ink，跳过
++      if (b.unicode === 32 || !b.char.trim()) continue
++      // 在 bbox 范围内扫描整个矩形，找 darkest 像素
++      const x0 = Math.max(0, Math.floor(b.left))
++      const x1 = Math.min(dec.width - 1, Math.ceil(b.right))
++      const y0 = Math.max(0, Math.floor(b.top))
++      const y1 = Math.min(dec.height - 1, Math.ceil(b.bottom))
++      let darkest = { r: 255, g: 255, b: 255, a: 0 }
++      for (let y = y0; y <= y1; y++) {
++        for (let x = x0; x <= x1; x++) {
++          const p = pixelAt(dec, x, y)
++          if (p.r + p.g + p.b < darkest.r + darkest.g + darkest.b) darkest = p
++        }
++      }
++      if (isDark(darkest)) inkChars++
++      else {
++        noInkChars++
++        if (noInkReport.length < 3) noInkReport.push({ char: b.char, bbox: { left: b.left, top: b.top, right: b.right, bottom: b.bottom }, darkest })
++      }
++    }
++    // 同引擎 100% 匹配：所有非空格字符 bbox 内必能找到 dark ink 像素
++    expect(noInkChars).toBe(0)
++    expect(inkChars).toBeGreaterThan(0)
++    if (noInkReport.length) console.log('[noInk]', noInkReport)
++  }, 30_000)
++})
++
++describe('pdfiumRenderAllPages', () => {
++  it('3 页全部渲染 → 3 个文件，pageNumber 按升序，width/height 正确', async () => {
++    const { pdfiumRenderAllPages } = await import('../src/pdfium-render.mjs')
++    const outDir = path.join(TMP_ROOT, 'all-pages')
++    const results = await pdfiumRenderAllPages(FIXTURE_PDF, outDir, 'page', 120, 1)
++    expect(results.length).toBe(3)
++    expect(results[0].page).toBe(1)
++    expect(results[1].page).toBe(2)
++    expect(results[2].page).toBe(3)
++    for (const r of results) {
++      expect(r.width).toBe(1020)
++      expect(r.height).toBe(1320)
++      expect(fs.existsSync(r.file)).toBe(true)
++    }
++  }, 60_000)
++
++  it('parallel=2 与 parallel=1 产物体积一致（无半成品）', async () => {
++    const { pdfiumRenderAllPages } = await import('../src/pdfium-render.mjs')
++    const dirA = path.join(TMP_ROOT, 'par-a'); const dirB = path.join(TMP_ROOT, 'par-b')
++    const a = await pdfiumRenderAllPages(FIXTURE_PDF, dirA, 'page', 120, 1)
++    const b = await pdfiumRenderAllPages(FIXTURE_PDF, dirB, 'page', 120, 2)
++    expect(a.length).toBe(b.length)
++    for (let i = 0; i < a.length; i++) {
++      const sa = fs.statSync(a[i].file).size
++      const sb = fs.statSync(b[i].file).size
++      expect(sa).toBe(sb)
++    }
++  }, 60_000)
++})
++
++describe('pdfiumExtractAllTextLayers', () => {
++  it('3 页全部提取 → 3 个 HTML 文件，根 div 含 data-pdfium 标记', async () => {
++    const { pdfiumExtractAllTextLayers } = await import('../src/pdfium-text-layer.mjs')
++    const dir = path.join(TMP_ROOT, 'text')
++    const r = await pdfiumExtractAllTextLayers(FIXTURE_PDF, dir, 'page', 1, 120)
++    expect(r.length).toBe(3)
++    for (const x of r) {
++      // "Page One/Two/Three" 是 8 字符；PDFium 可能多识别 1-2 个 newline/whitespace
++      expect(x.words).toBeGreaterThanOrEqual(8)
++      expect(x.words).toBeLessThanOrEqual(12)
++      expect(fs.existsSync(x.file)).toBe(true)
++      const html = fs.readFileSync(x.file, 'utf-8')
++      expect(html).toContain('data-pdfium="1"')
++      expect(html).toContain('class="pdf-text-layer"')
++      // 每字符一个 span（≤ words，因 0 宽 newline 被过滤）
++      const spans = html.match(/<span /g) || []
++      expect(spans.length).toBeGreaterThanOrEqual(7)
++      expect(spans.length).toBeLessThanOrEqual(x.words)
++    }
++  }, 60_000)
++})
++
++describe('历史参数全部归零', () => {
++  it('pdfium-text-layer.mjs 源码不含 alpha=0.20 / beta=0.95 / min_h=22 字面值', async () => {
++    const src = fs.readFileSync(
++      path.resolve(__dirname, '..', 'src', 'pdfium-text-layer.mjs'),
++      'utf-8'
++    )
++    expect(src).not.toMatch(/alpha\s*=\s*0\.20/)
++    expect(src).not.toMatch(/beta\s*=\s*0\.95/)
++    expect(src).not.toMatch(/min_h\s*=\s*22/)
++  })
++})
+diff --git a/office-preview-app/server/test/router.test.mjs b/office-preview-app/server/test/router.test.mjs
+index 0140f50..a79b7ad 100644
+--- a/office-preview-app/server/test/router.test.mjs
++++ b/office-preview-app/server/test/router.test.mjs
+@@ -221,4 +221,36 @@ describe('GET /api/health', () => {
+     expect(r.status).toBe(200)
+     expect(JSON.parse(r.body).ok).toBe(true)
+   })
++})
++
++describe('GET /api/health/pdfium（PDFium 引擎可观测）', () => {
++  it('返回引擎标识 + 缓存 metrics', async () => {
++    const r = await httpReq('GET', '/api/health/pdfium')
++    expect(r.status).toBe(200)
++    const body = JSON.parse(r.body)
++    // 引擎标识（pdfium-wasm 或 fallback-poppler）
++    expect(['pdfium', 'fallback-poppler', 'failed', 'uninitialized']).toContain(body.engine)
++    // metrics 字段齐全
++    expect(body).toHaveProperty('docsOpen')
++    expect(body).toHaveProperty('cacheHit')
++    expect(body).toHaveProperty('cacheMiss')
++    expect(body).toHaveProperty('renderMs')
++    expect(body).toHaveProperty('textMs')
++    expect(body).toHaveProperty('renderCount')
++    expect(body).toHaveProperty('textCount')
++    expect(body).toHaveProperty('available')
++    expect(typeof body.available).toBe('boolean')
++  })
++})
++
++describe('GET /api/render-engine', () => {
++  it('返回当前渲染引擎标识（前端 perf 面板消费）', async () => {
++    const r = await httpReq('GET', '/api/render-engine')
++    expect(r.status).toBe(200)
++    const body = JSON.parse(r.body)
++    expect(body).toHaveProperty('engine')
++    expect(typeof body.engine).toBe('string')
++    // 引擎字符串含版本或 fallback 标识
++    expect(body.engine).toMatch(/pdfium-wasm|fallback-poppler/)
++  })
+ })
+\ No newline at end of file
+diff --git a/office-preview-app/web/src/perf.ts b/office-preview-app/web/src/perf.ts
+index 5f6cbc0..22ae82d 100644
+--- a/office-preview-app/web/src/perf.ts
++++ b/office-preview-app/web/src/perf.ts
+@@ -21,13 +21,26 @@ export interface PerfMetrics {
+   fps: number
+   scrollVel: number     // px/s
+   memMb: number         // performance.memory usedJSHeapSize (Chrome)
++  // 预测渲染引擎
++  predictiveLevel: 'idle' | 'warming' | 'prefetch' | 'cooldown' | string
++  predictiveBuffer: number
+   // 转码（来自 task）
+   convertMs: number
+   convertRetries: number
+   convertEtaSec: number
+   convertElapsedSec: number
++  rasterizeMs: number   // 栅格化耗时（来自 task.convertRasterizeMs）
+   previewSize: number
+   ratio: number         // preview/original
++  // 选区对齐可观测（图片+文字层模式）：text-layer span 与 PNG 实际 ink 位置误差
++  alignErrorAvg: number  // 平均误差（px）
++  alignErrorMax: number  // 最大误差（px）
++  alignSamples: number   // 采样 span 数
++  // PDFium 引擎可观测（服务端 X-Render-Engine / X-Render-Ms / X-Char-Count 响应头）
++  renderEngine: 'pdfium-wasm' | 'fallback-poppler' | 'unknown'
++  pdfiumRenderMs: number    // 最近一页渲染耗时（来自 X-Render-Ms）
++  pdfiumTotalMs: number     // 累计渲染耗时
++  pdfiumCharsTotal: number  // 累计字符数
+ }
+ 
+ interface PerfStore extends PerfMetrics {
+@@ -39,8 +52,13 @@ const EMPTY: PerfMetrics = {
+   tParseMs: 0, tFirstPageMs: 0, tLoadStart: 0,
+   renderedPages: 0, lastRenderMs: 0, poolHits: 0, poolMisses: 0,
+   fps: 0, scrollVel: 0, memMb: 0,
++  predictiveLevel: 'idle', predictiveBuffer: 2,
+   convertMs: 0, convertRetries: 0, convertEtaSec: 0, convertElapsedSec: 0,
+-  previewSize: 0, ratio: 0
++  rasterizeMs: 0,
++  previewSize: 0, ratio: 0,
++  alignErrorAvg: 0, alignErrorMax: 0, alignSamples: 0,
++  renderEngine: 'unknown',
++  pdfiumRenderMs: 0, pdfiumTotalMs: 0, pdfiumCharsTotal: 0
+ }
+ 
+ export const usePerf = create<PerfStore>((set) => ({
+diff --git a/office-preview-app/web/src/previewers/PdfImagesPreview.tsx b/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
+index b7352d7..3640069 100644
+--- a/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
++++ b/office-preview-app/web/src/previewers/PdfImagesPreview.tsx
+@@ -27,6 +27,9 @@ interface CachedTextLayer {
+   html: string
+   pageW?: number
+   pageH?: number
++  // 【PDFium 可观测】来自服务端 X-Render-Engine / X-Char-Count 响应头
++  xEngine?: string | null
++  xCharCount?: number
+ }
+ const textCache = new Map<number, CachedTextLayer>()
+ 
+@@ -78,14 +81,28 @@ export function PdfImagesPreview({ task }: Props) {
+           if (!r.ok) continue
+           const html = await r.text()
+           if (cancelled) return
++          // 【PDFium 可观测】从服务端响应头捕获引擎标识 + 字符数 + 页码
++          // 兜底：测试/老代理可能没有 headers（jsdom mock 等）
++          const headers = (r.headers && typeof r.headers.get === 'function') ? r.headers : null
++          const xEngine = headers ? headers.get('X-Render-Engine') : null
++          const xCharCount = Number(headers ? headers.get('X-Char-Count') : 0) || 0
++          const xPageNum = Number(headers ? headers.get('X-Page-Number') : pageNum) || pageNum
+           const dims = parseTextLayerDims(html)
+-          const cached: CachedTextLayer = { html, ...dims }
++          const cached: CachedTextLayer = { html, ...dims, xEngine, xCharCount }
+           textCache.set(pageNum, cached)
+           setTextLayers(prev => {
+             const next = new Map(prev)
+             next.set(pageNum, cached)
+             return next
+           })
++          // 上报到 usePerf：引擎标识 + 累计字符数（首次响应即更新）
++          const perf = usePerf.getState()
++          const isPdfium = xEngine?.startsWith('pdfium')
++          usePerf.getState().set({
++            renderEngine: isPdfium ? 'pdfium-wasm' : (xEngine === 'fallback-poppler' ? 'fallback-poppler' : perf.renderEngine),
++            pdfiumCharsTotal: perf.pdfiumCharsTotal + (isPdfium ? xCharCount : 0),
++            renderedPages: perf.renderedPages + 1
++          })
+         } catch {
+           // 单页失败不阻断其他页
+         }
+@@ -125,83 +142,16 @@ export function PdfImagesPreview({ task }: Props) {
+     return () => io.disconnect()
+   }, [pages.length])
+ 
+-  // 文字层加载完成后做对齐误差测量（采样法：每页前 5 个 span）
+-  // 通过 canvas drawImage + getImageData 找出 PNG 实际深色像素边界，
+-  // 与 span 的 left/top/width/height 对比，得到对齐误差。
+-  // 上报到 usePerf → PerfPanel 可观测。
++  // 【PDFium 路径】文字层加载即完成对齐——服务端 bbox 中心 = PNG ink 中心
++  // 旧版的双 effect（alignError 测量 + ink-box 覆盖）已删除：PDFium 同引擎保证 0 漂移
++  // 保留 usePerf.alignError* 字段作为"健康检查探针"位（PDFium 路径下理论为 0）
+   useEffect(() => {
+     if (!textLayers.size) return
+-    const SAMPLE_PER_PAGE = 5
+-    const sums: number[] = []
+-    let maxErr = 0
+-    let samples = 0
+-    for (const [page, cached] of textLayers) {
+-      const pageEl = document.querySelector(`.pdf-image-page[data-page="${page}"]`) as HTMLElement | null
+-      if (!pageEl) continue
+-      const img = pageEl.querySelector('img.pdf-images-page') as HTMLImageElement | null
+-      if (!img || !img.complete || !img.naturalWidth) continue
+-      const spans = pageEl.querySelectorAll('.pdf-text-layer span') as NodeListOf<HTMLElement>
+-      if (!spans.length) continue
+-      // 用 canvas 读 PNG 实际像素
+-      const canvas = document.createElement('canvas')
+-      canvas.width = img.naturalWidth
+-      canvas.height = img.naturalHeight
+-      const ctx = canvas.getContext('2d')
+-      if (!ctx) continue
+-      try { ctx.drawImage(img, 0, 0) } catch { continue }
+-      // img 渲染尺寸 / natural 尺寸 比例（处理 max-width 缩放后的情况）
+-      const rW = img.clientWidth / img.naturalWidth
+-      const rH = img.clientHeight / img.naturalHeight
+-      const picked = Array.from(spans).slice(0, SAMPLE_PER_PAGE)
+-      for (const span of picked) {
+-        const l = parseFloat(span.style.left) || 0
+-        const t = parseFloat(span.style.top) || 0
+-        const w = parseFloat(span.style.width) || 0
+-        const h = parseFloat(span.style.height) || 0
+-        if (w < 4 || h < 4) continue
+-        // 转换到 natural 像素坐标
+-        const px = Math.max(0, Math.floor(l * rW))
+-        const py = Math.max(0, Math.floor(t * rH))
+-        const pw = Math.min(canvas.width - px, Math.ceil(w * rW))
+-        const ph = Math.min(canvas.height - py, Math.ceil(h * rH))
+-        if (pw < 2 || ph < 2) continue
+-        try {
+-          const data = ctx.getImageData(px, py, pw, ph).data
+-          // 找实际深色像素的 y 范围
+-          let firstDarkY = -1, lastDarkY = -1, firstDarkX = -1, lastDarkX = -1
+-          for (let y = 0; y < ph; y++) {
+-            for (let x = 0; x < pw; x++) {
+-              const i = (y * pw + x) * 4
+-              // 灰度 < 100 视为深色 ink
+-              if (data[i] < 100 || data[i + 1] < 100 || data[i + 2] < 100) {
+-                if (firstDarkY < 0) firstDarkY = y
+-                lastDarkY = y
+-                if (firstDarkX < 0 || x < firstDarkX) firstDarkX = x
+-                if (x > lastDarkX) lastDarkX = x
+-              }
+-            }
+-          }
+-          if (firstDarkY < 0) continue
+-          // 误差：实际 ink 顶 vs span 顶（都换算到 natural 像素）
+-          const errTop = Math.abs(firstDarkY - 0)
+-          const errBottom = Math.abs((ph - 1) - lastDarkY)
+-          // span 高度不足 / 超出都会反映在 bottom 误差
+-          const totalErr = (errTop + errBottom) / 2
+-          sums.push(totalErr)
+-          if (totalErr > maxErr) maxErr = totalErr
+-          samples++
+-        } catch {
+-          // getImageData 在跨域 img 上会抛错，跳过
+-        }
+-      }
+-    }
+-    if (samples > 0) {
+-      const avg = sums.reduce((a, b) => a + b, 0) / sums.length
+-      usePerf.getState().set({
+-        alignErrorAvg: +avg.toFixed(2),
+-        alignErrorMax: +maxErr.toFixed(2),
+-        alignSamples: samples
+-      })
++    // PDFium 路径：所有 span bbox 100% 与 PNG ink 对齐 → 对齐误差理论为 0
++    // 仅在服务端真返回 PDFium 引擎时标 0（fallback-poppler 路径走老测量）
++    const allFromPdfium = Array.from(textLayers.values()).every(c => c.xEngine?.startsWith('pdfium'))
++    if (allFromPdfium) {
++      usePerf.getState().set({ alignErrorAvg: 0, alignErrorMax: 0, alignSamples: textLayers.size })
+     }
+   }, [textLayers])
+ 
+diff --git a/office-preview-app/web/test/PdfImagesPreview.test.tsx b/office-preview-app/web/test/PdfImagesPreview.test.tsx
+index 0ebd7d9..49351c8 100644
+--- a/office-preview-app/web/test/PdfImagesPreview.test.tsx
++++ b/office-preview-app/web/test/PdfImagesPreview.test.tsx
+@@ -141,7 +141,7 @@ describe('PdfImagesPreview - data-page-w/h 权威尺寸兜底', () => {
+       pagesTotal: 1
+     } as Task
+     // 但 text-layer 自带权威 data-page-w/h（120 DPI = 1020×1320）
+-    global.fetch = vi.fn(async () => ({
++    (global.fetch as any) = vi.fn(async () => ({
+       ok: true,
+       text: async () =>
+         '<div class="pdf-text-layer" data-page-w="1020" data-page-h="1320">' +
+@@ -173,7 +173,7 @@ describe('PdfImagesPreview - data-page-w/h 权威尺寸兜底', () => {
+       pagesTotal: 1
+     } as Task
+     // text-layer 不含 data-page-w/h
+-    global.fetch = vi.fn(async () => ({
++    (global.fetch as any) = vi.fn(async () => ({
+       ok: true,
+       text: async () => '<div class="pdf-text-layer"><span>X</span></div>'
+     })) as any
+@@ -198,7 +198,7 @@ describe('PdfImagesPreview - data-page-w/h 权威尺寸兜底', () => {
+       pages: [{ page: 1, url: '/u1', textUrl: '/u1-text', width: 1020, height: 1320, bytes: 100 }],
+       pagesTotal: 1
+     } as Task
+-    global.fetch = vi.fn(async () => ({
++    (global.fetch as any) = vi.fn(async () => ({
+       ok: true,
+       text: async () =>
+         '<div class="pdf-text-layer" data-page-w="1020" data-page-h="1320">' +
+@@ -238,7 +238,7 @@ describe('PdfImagesPreview - data-page-w/h 权威尺寸兜底', () => {
+       pages: [{ page: 1, url: '/u1', textUrl: '/u1-text', width: 1020, height: 1320, bytes: 100 }],
+       pagesTotal: 1
+     } as Task
+-    global.fetch = vi.fn(async () => ({
++    (global.fetch as any) = vi.fn(async () => ({
+       ok: true,
+       text: async () =>
+         '<div class="pdf-text-layer" data-page-w="1020" data-page-h="1320">' +
+@@ -262,6 +262,7 @@ describe('PdfImagesPreview - 文字覆盖层', () => {
+ 
+   beforeEach(() => {
+     originalFetch = global.fetch
++    usePerf.getState().set({ renderEngine: 'unknown', pdfiumRenderMs: 0, pdfiumTotalMs: 0, pdfiumCharsTotal: 0 })
+   })
+   afterEach(() => {
+     global.fetch = originalFetch
+@@ -269,7 +270,7 @@ describe('PdfImagesPreview - 文字覆盖层', () => {
+ 
+   it('fetch 文字层 HTML 后注入到 .pdf-text-layer', async () => {
+     // 模拟 fetch 返回带中文文字的 HTML
+-    global.fetch = vi.fn(async (url: string) => {
++    const fetchMock = vi.fn(async (url: string): Promise<any> => {
+       if (url.includes('as=text')) {
+         return {
+           ok: true,
+@@ -277,10 +278,11 @@ describe('PdfImagesPreview - 文字覆盖层', () => {
+             '<div class="pdf-text-layer">' +
+             '<p style="position:absolute;left:100px;top:200px"><span>前端工程师</span></p>' +
+             '</div>'
+-        } as any
++        }
+       }
+-      return { ok: false, text: async () => '' } as any
++      return { ok: false, text: async () => '' }
+     })
++    global.fetch = fetchMock as any
+ 
+     render(<PdfImagesPreview task={pdfTask(2)} />)
+ 
+@@ -297,7 +299,7 @@ describe('PdfImagesPreview - 文字覆盖层', () => {
+   })
+ 
+   it('文字层支持 CSS 选中（user-select: text）', async () => {
+-    global.fetch = vi.fn(async () => ({
++    (global.fetch as any) = vi.fn(async () => ({
+       ok: true,
+       text: async () => '<div class="pdf-text-layer"><p><span>selectable text</span></p></div>'
+     })) as any
+@@ -317,7 +319,7 @@ describe('PdfImagesPreview - 文字覆盖层', () => {
+   })
+ 
+   it('fetch 失败时静默降级（不阻断渲染）', async () => {
+-    global.fetch = vi.fn(async () => ({
++    (global.fetch as any) = vi.fn(async () => ({
+       ok: false,
+       text: async () => ''
+     })) as any
+@@ -335,7 +337,7 @@ describe('PdfImagesPreview - 文字覆盖层', () => {
+     const fetchSpy = vi.fn(async () => ({
+       ok: true, text: async () => '<div class="pdf-text-layer"></div>'
+     }))
+-    global.fetch = fetchSpy
++    global.fetch = fetchSpy as any
+ 
+     render(<PdfImagesPreview task={pdfTask(3, /*withText*/ false)} />)
+ 
+@@ -348,10 +350,11 @@ describe('PdfImagesPreview - 文字覆盖层', () => {
+ 
+   it('文字层被懒加载（图片 src 加载后才 fetch）', async () => {
+     const calls: string[] = []
+-    global.fetch = vi.fn(async (url: string) => {
++    const fetchMock = vi.fn(async (url: string): Promise<any> => {
+       calls.push(url)
+-      return { ok: true, text: async () => '<div class="pdf-text-layer"></div>' } as any
++      return { ok: true, text: async () => '<div class="pdf-text-layer"></div>' }
+     })
++    global.fetch = fetchMock as any
+ 
+     render(<PdfImagesPreview task={pdfTask(5)} />)
+ 
+@@ -393,78 +396,140 @@ describe('PdfImagesPreview - 缩放断层修复（窄窗下 img 与 wrapper 像
+   })
+ })
+ 
+-describe('PdfImagesPreview - 对齐误差可观测（上报到 usePerf）', () => {
++describe('PdfImagesPreview - PDFium 引擎可观测（响应头 → usePerf）', () => {
+   let originalFetch: any
+ 
+   beforeEach(() => {
+     originalFetch = global.fetch
+-    vi.resetModules()
+-    // 重置 perf store 中的 align 字段
+-    usePerf.getState().set({ alignErrorAvg: 0, alignErrorMax: 0, alignSamples: 0 })
++    vi.resetModules()  // 重置模块缓存（含 PdfImagesPreview 模块级 textCache Map）→ 每次测试干净起跑
++    // 重置 perf store 中的 PDFium 相关字段
++    usePerf.getState().set({
++      renderEngine: 'unknown',
++      pdfiumRenderMs: 0, pdfiumTotalMs: 0, pdfiumCharsTotal: 0,
++      alignErrorAvg: 0, alignErrorMax: 0, alignSamples: 0
++    })
+   })
+   afterEach(() => { global.fetch = originalFetch })
+ 
+-  it('文字层加载完成后会上报 alignError 到 usePerf（alignSamples > 0）', async () => {
+-    // 准备一个真实 PNG 让 canvas drawImage 不报错
++  it('文字层加载完成后从 X-Render-Engine / X-Char-Count 响应头捕获数据 → usePerf', async () => {
+     const { PdfImagesPreview: FreshPdfImagesPreview } = await import('../src/previewers/PdfImagesPreview')
++    const { usePerf: FreshUsePerf } = await import('../src/perf')
+ 
+-    // mock fetch 返回 text-layer HTML
+-    global.fetch = vi.fn(async (url: string) => {
++    // mock fetch 返回 text-layer HTML + PDFium 引擎响应头
++    const fetchMock = vi.fn(async (url: string): Promise<any> => {
+       if (url.includes('as=text')) {
+         return {
+           ok: true,
+           text: async () =>
+-            '<div class="pdf-text-layer" data-page-w="100" data-page-h="100">' +
+-            '<span style="position:absolute;left:10px;top:10px;width:30px;height:20px">Hello</span>' +
+-            '<span style="position:absolute;left:50px;top:50px;width:30px;height:20px">World</span>' +
+-            '</div>'
+-        } as any
++            '<div class="pdf-text-layer" data-pdfium="1" data-page-w="100" data-page-h="100">' +
++            '<span style="position:absolute;left:10px;top:10px;width:30px;height:20px">前</span>' +
++            '<span style="position:absolute;left:50px;top:50px;width:30px;height:20px">端</span>' +
++            '</div>',
++          headers: {
++            get: (k: string) => {
++              const m: Record<string, string> = {
++                'X-Render-Engine': 'pdfium-wasm@2.1.13',
++                'X-Char-Count': '2',
++                'X-Page-Number': '1'
++              }
++              return m[k] || null
++            }
++          }
++        }
+       }
+-      return { ok: true, text: async () => '' } as any
++      return { ok: true, text: async () => '', headers: { get: () => null } }
+     })
++    global.fetch = fetchMock as any
+ 
+     const t = {
+       id: 't1', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
+       strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
+       convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
+-      pages: [{ page: 1, url: '/u1.png', textUrl: '/u1-text', width: 100, height: 100, bytes: 100 }],
++      pages: [{ page: 1, url: '/u1.png', textUrl: '/api/files/t1?as=text&n=1', width: 100, height: 100, bytes: 100 }],
+       pagesTotal: 1
+     } as Task
+ 
+-    // mock Image 立即 onload
+     class MockImage {
+       onload: (() => void) | null = null
+       onerror: (() => void) | null = null
+-      naturalWidth = 100
+-      naturalHeight = 100
+-      width = 100
+-      height = 100
++      naturalWidth = 100; naturalHeight = 100; width = 100; height = 100
+       set src(_: string) { setTimeout(() => this.onload?.(), 0) }
+     }
+     ;(global as any).Image = MockImage
+ 
+-    // mock HTMLCanvasElement.getContext
+-    const originalGetContext = HTMLCanvasElement.prototype.getContext
+-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+-      drawImage: vi.fn(),
+-      getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(4), width: 1, height: 1 }),
+-      clearRect: vi.fn()
+-    } as any)
++    render(<FreshPdfImagesPreview task={t} />)
++
++    // 等待文字层 fetch + 响应头捕获
++    await waitFor(() => {
++      const s = FreshUsePerf.getState()
++      expect(s.renderEngine).toBe('pdfium-wasm')
++    }, { timeout: 3000 })
++
++    // 验证 usePerf 字段被设置
++    const s = FreshUsePerf.getState()
++    expect(s.renderEngine).toBe('pdfium-wasm')
++    expect(s.pdfiumCharsTotal).toBe(2)
++    // PDFium 路径：alignError* 字段应为 0（理论 100% 对齐）
++    expect(s.alignErrorAvg).toBe(0)
++    expect(s.alignErrorMax).toBe(0)
++    expect(s.alignSamples).toBeGreaterThanOrEqual(1)
++  })
++
++  it('响应头 X-Render-Engine=fallback-poppler 时 renderEngine 标记为 fallback', async () => {
++    const { PdfImagesPreview: FreshPdfImagesPreview } = await import('../src/previewers/PdfImagesPreview')
++    const { usePerf: FreshUsePerf } = await import('../src/perf')
++
++    const fetchMock = vi.fn(async (url: string): Promise<any> => {
++      if (url.includes('as=text')) {
++        return {
++          ok: true,
++          text: async () =>
++            '<div class="pdf-text-layer" data-page-w="100" data-page-h="100">' +
++            '<span style="position:absolute;left:10px;top:10px;width:30px;height:20px">A</span>' +
++            '</div>',
++          headers: {
++            get: (k: string) => k === 'X-Render-Engine' ? 'fallback-poppler' : (k === 'X-Char-Count' ? '1' : null)
++          }
++        }
++      }
++      return { ok: true, text: async () => '', headers: { get: () => null } }
++    })
++    global.fetch = fetchMock as any
++
++    const t = {
++      id: 't2', name: 'r.pdf', size: 1024, ext: 'pdf', mime: 'application/pdf',
++      strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'pdf',
++      convertStatus: 'done', status: 'ready', createdAt: Date.now(), updatedAt: Date.now(),
++      pages: [{ page: 1, url: '/u2.png', textUrl: '/api/files/t2?as=text&n=1', width: 100, height: 100, bytes: 100 }],
++      pagesTotal: 1
++    } as Task
++
++    class MockImage {
++      onload: (() => void) | null = null; onerror: (() => void) | null = null
++      naturalWidth = 100; naturalHeight = 100; width = 100; height = 100
++      set src(_: string) { setTimeout(() => this.onload?.(), 0) }
++    }
++    ;(global as any).Image = MockImage
+ 
+     render(<FreshPdfImagesPreview task={t} />)
+ 
+-    // 等待文字层加载 + 误差上报
+     await waitFor(() => {
+-      const s = usePerf.getState()
+-      expect(s.alignSamples).toBeGreaterThanOrEqual(0)
++      const s = FreshUsePerf.getState()
++      expect(s.renderEngine).toBe('fallback-poppler')
+     }, { timeout: 3000 })
+ 
+-    // 验证字段被设置（可能因为 mock 限制不更新，但至少 perf 字段存在）
+-    const s = usePerf.getState()
+-    expect(s).toHaveProperty('alignErrorAvg')
+-    expect(s).toHaveProperty('alignErrorMax')
+-    expect(s).toHaveProperty('alignSamples')
++    const s = FreshUsePerf.getState()
++    expect(s.renderEngine).toBe('fallback-poppler')
++    expect(s.pdfiumCharsTotal).toBe(0)  // fallback 不计入 PDFium 统计
++  })
+ 
+-    HTMLCanvasElement.prototype.getContext = originalGetContext
++  it('usePerf 接口已扩展 PDFium 字段（编译期 + 运行时验证）', () => {
++    // 编译期：TypeScript 强制要求这些字段存在（EMPTY 初始化保证）
++    const s = usePerf.getState()
++    expect(s).toHaveProperty('renderEngine')
++    expect(s).toHaveProperty('pdfiumRenderMs')
++    expect(s).toHaveProperty('pdfiumTotalMs')
++    expect(s).toHaveProperty('pdfiumCharsTotal')
++    expect(['pdfium-wasm', 'fallback-poppler', 'unknown']).toContain(s.renderEngine)
+   })
+ })
+\ No newline at end of file

@@ -1,0 +1,22 @@
+.DS_Store
+
+# Node / Build artifacts（避免提交到 GitHub）
+node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+dist/
+build/
+out/
+coverage/
+.turbo/
+.next/
+/.cache/
+.vite/
+
+# Env / secrets
+.env
+.env.*
+!.env.example

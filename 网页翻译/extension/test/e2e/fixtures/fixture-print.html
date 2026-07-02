@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Print Mode Fixture</title>
+<style>
+body { font: 15px/1.5 -apple-system, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+h1 { font-size: 22px; }
+article { padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; }
+@media print {
+  body { background: white; color: black; }
+  .no-print { display: none; }
+}
+</style>
+</head>
+<body>
+<h1>Long Form Article for Reading and Printing</h1>
+<article>
+<p>This document is designed to look clean both on screen and on paper.</p>
+<p>Print styling hides navigation and decorative chrome while preserving the body text.</p>
+<p>Reading comfort is the primary goal in both formats for our users.</p>
+</article>
+<div class="no-print" style="margin-top:12px;color:#9ca3af;font-size:12px">Hidden when printing</div>
+<!-- pre-injected translation spans (simulating post-translation state for print CSS test) -->
+<div id="xt-fab-host" style="position:fixed;bottom:100px;right:16px"></div>
+<div id="xt-toolbar-host"></div>
+<span class="xt-translation" data-xt-tgt="test-seg-1" style="display:block">本文档设计为在屏幕和纸张上都清晰易读。</span>
+<script>window.__xtFixtureReady = true;</script>
+</body>
+</html>

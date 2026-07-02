@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "baseUrl": ".",
+        "target": "ES2020",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2020", "DOM"],
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "declaration": true,
+        "declarationDir": "dist",
+        "outDir": "dist",
+        "rootDir": "src",
+        "paths": {
+            "@miaoma-aiflow/plugin-core": ["../plugin-core/build/esm/index.d.ts"]
+        },
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": false
+    },
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,38 @@
+# 排除超过 GitHub 100MB 限制的大文件
+# 用户确认：只排除大文件，其他都上传
+
+# 排除所有嵌套的 .git 目录（避免子仓库冲突，子项目作为普通文件夹上传）
+**/.git/
+**/.git/objects/
+**/.git/lfs/
+
+# 排除临时重命名的 .git 目录（推送后会恢复原名）
+**/.git_disabled_temp/
+**/.git_disabled_temp/**
+
+# 根目录的大文件
+项目.zip
+LeeDL_Tutorial_v.1.2.4.pdf
+
+# 子目录中的大 PDF
+v3/preview-engine/samples/range.pdf
+office-doc-preview/office-preview-app/.data/derived/t_mr09b6x730f20c72/EasyRL_v1.0.6.linear.pdf
+office-doc-preview/office-preview-app/.data/derived/t_mr0lycp41c833e2c/LeeDL_Tutorial_v.1.2.4.linear.pdf
+office-doc-preview/office-preview-app/.data/uploads/t_mr09b6mle5ce0c96_EasyRL_v1.0.6.pdf
+office-doc-preview/office-preview-app/.data/uploads/t_mr0lycf7e81266fe_LeeDL_Tutorial_v.1.2.4.pdf
+apps/files/蘑菇书.pdf
+apps/office-preview-app/.data/derived/t_mqkztacqc35df3ab/蘑菇书.linear.pdf
+apps/office-preview-app/.data/uploads/t_mqkztaaq33960614_蘑菇书.pdf
+
+# ONNX 模型（>100MB）
+网页翻译/node_modules/@huggingface/transformers/.cache/Xenova/LaBSE/onnx/model.onnx
+网页翻译/spike/word-alignment/node_modules/@huggingface/transformers/.cache/Xenova/clip-vit-base-patch16/onnx/vision_model.onnx
+网页翻译/spike/word-alignment/node_modules/@huggingface/transformers/.cache/Xenova/clip-vit-base-patch16/onnx/model.onnx
+网页翻译/spike/word-alignment/node_modules/@huggingface/transformers/.cache/Xenova/opus-mt-en-zh/onnx/encoder_model.onnx
+网页翻译/spike/word-alignment/node_modules/@huggingface/transformers/.cache/Xenova/opus-mt-en-zh/onnx/decoder_model_merged.onnx
+
+# 嵌套 .git 中的大对象（避免冲突）
+v3/.git/objects/43/b5f412d700246a69ef10d19649f3abe3fb83c9
+v3/.git/lfs/objects/cc/83/cc8352af93a67404d42fa44ae4cfbae906e4edc6bc0a41fc00f8db3594f99ad0
+apps/.git/objects/43/b5f412d700246a69ef10d19649f3abe3fb83c9
+apps/.git/lfs/objects/cc/83/cc8352af93a67404d42fa44ae4cfbae906e4edc6bc0a41fc00f8db3594f99ad0

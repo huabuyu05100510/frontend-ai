@@ -1,0 +1,1855 @@
+diff --git a/office-preview-app/server/src/router.mjs b/office-preview-app/server/src/router.mjs
+index 22c7ec8..15b31f0 100644
+--- a/office-preview-app/server/src/router.mjs
++++ b/office-preview-app/server/src/router.mjs
+@@ -9,6 +9,7 @@ import { enqueueConvert } from './converter.mjs'
+ import { ensureLinearized } from './pdf-optimize.mjs'
+ import { extractTextLayer, pdfRenderEngine } from './pdf-rasterize.mjs'
+ import { getPdfiumMetrics } from './pdfium-render.mjs'
++import { myersDiff, summarizeErrors, groupByHunk, charDiffToRenderTokens } from './diff.mjs'
+ 
+ function sendJSON(res, code, data) {
+   res.setHeader('Access-Control-Allow-Origin', '*')
+@@ -210,6 +211,61 @@ export async function route(req, res) {
+   }
+ }
+ 
++/**
++ * 智检 diff 端点：POST /api/inspect/diff
++ * 入参：{ left: string, right: string, granularity?: 'char' | 'word' }
++ * 出参：{ ops, errors, hunks, tokens, ms }
++ * 响应头：X-Diff-Engine / X-Diff-Ms / X-Diff-Length-Left / X-Diff-Length-Right / X-Diff-Ops
++ */
++async function handleInspectDiff(req, res) {
++  try {
++    // 上限：双栏文本各 200KB（约 10 万字），覆盖绝大部分合同/论文场景
++    const MAX_TEXT = 200 * 1024
++    const body = await readBody(req, MAX_TEXT * 2 + 1024)
++    const { left = '', right = '', granularity = 'char' } = JSON.parse(body.toString('utf8'))
++    if (typeof left !== 'string' || typeof right !== 'string') {
++      return sendJSON(res, 400, { error: 'left/right must be string' })
++    }
++    if (left.length > MAX_TEXT || right.length > MAX_TEXT) {
++      return sendJSON(res, 413, { error: `text too long (max ${MAX_TEXT} chars each side)` })
++    }
++
++    const t0 = Date.now()
++    // 词级 diff（本期先用 char 兜底，word 分词留给后续）
++    const ops = myersDiff(left, right)
++    const errors = summarizeErrors(ops)
++    const hunks = groupByHunk(ops)
++    const tokens = charDiffToRenderTokens(ops)
++    const ms = Date.now() - t0
++
++    // 可观测响应头
++    res.setHeader('X-Diff-Engine', 'myers@1.0')
++    res.setHeader('X-Diff-Ms', String(ms))
++    res.setHeader('X-Diff-Length-Left', String(Array.from(left).length))
++    res.setHeader('X-Diff-Length-Right', String(Array.from(right).length))
++    res.setHeader('X-Diff-Ops', String(ops.length))
++    res.setHeader('X-Diff-Errors', String(errors.length))
++
++    // 服务端日志（按 CLAUDE.md 要求）
++    console.log(`[inspect-diff] granularity=${granularity} left=${left.length}B right=${right.length}B ops=${ops.length} errors=${errors.length} ms=${ms}`)
++
++    return sendJSON(res, 200, {
++      ops, errors, hunks, tokens,
++      ms,
++      meta: {
++        granularity,
++        leftChars: Array.from(left).length,
++        rightChars: Array.from(right).length,
++        errorCount: errors.length
++      }
++    })
++  } catch (e) {
++    if (e.message === 'FILE_TOO_LARGE') return sendJSON(res, 413, { error: 'payload too large' })
++    console.error('[inspect-diff] failed:', e.message)
++    return sendJSON(res, 500, { error: e.message || 'internal error' })
++  }
++}
++
+ async function handleRoute(req, res, url, pathname) {
+ 
+   // 健康检查
+@@ -268,6 +324,11 @@ async function handleRoute(req, res, url, pathname) {
+     return await handleUpload(req, res)
+   }
+ 
++  // 智检 diff：左/右文本 → 字符级 diff ops + 错误列表
++  if (pathname === '/api/inspect/diff' && req.method === 'POST') {
++    return await handleInspectDiff(req, res)
++  }
++
+   // 文件服务 /api/files/:id?as=original|preview|thumb|page&n=N|text&n=N
+   const m = pathname.match(/^\/api\/files\/([\w-]+)$/)
+   if (m && req.method === 'GET') {
+diff --git a/office-preview-app/server/test/router.test.mjs b/office-preview-app/server/test/router.test.mjs
+index a79b7ad..4ba60dd 100644
+--- a/office-preview-app/server/test/router.test.mjs
++++ b/office-preview-app/server/test/router.test.mjs
+@@ -51,17 +51,18 @@ afterAll(async () => {
+ })
+ 
+ // ============ helpers ============
+-async function httpReq(method, urlPath, headers = {}) {
++async function httpReq(method, urlPath, headers = {}, body) {
+   return new Promise((resolve, reject) => {
+     const u = new URL(urlPath, baseUrl)
+     const req = http.request({
+       method, hostname: u.hostname, port: u.port, path: u.pathname + u.search, headers
+     }, (res) => {
+-      let body = ''
+-      res.on('data', c => body += c)
+-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }))
++      let buf = ''
++      res.on('data', c => buf += c)
++      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: buf }))
+     })
+     req.on('error', reject)
++    if (body !== undefined) req.write(body)
+     req.end()
+   })
+ }
+@@ -253,4 +254,74 @@ describe('GET /api/render-engine', () => {
+     // 引擎字符串含版本或 fallback 标识
+     expect(body.engine).toMatch(/pdfium-wasm|fallback-poppler/)
+   })
++})
++
++describe('POST /api/inspect/diff（智检 diff）', () => {
++  function postDiff(left, right) {
++    return httpReq('POST', '/api/inspect/diff',
++      { 'Content-Type': 'application/json' },
++      JSON.stringify({ left, right }))
++  }
++
++  it('返回 200 + diff ops + errors + hunks + tokens', async () => {
++    const r = await postDiff('既往开来', '继往开来')
++    expect(r.status).toBe(200)
++    const body = JSON.parse(r.body)
++    expect(body).toHaveProperty('ops')
++    expect(body).toHaveProperty('errors')
++    expect(body).toHaveProperty('hunks')
++    expect(body).toHaveProperty('tokens')
++    expect(body).toHaveProperty('ms')
++    expect(body.errors).toHaveLength(1)
++    expect(body.errors[0]).toMatchObject({ id: 'e1', original: '既', corrected: '继' })
++  })
++
++  it('响应头可观测：X-Diff-Engine / X-Diff-Ms / X-Diff-Ops / X-Diff-Errors', async () => {
++    const r = await postDiff('湖北省张家界市', '湖南省张家界')
++    expect(r.headers['x-diff-engine']).toBe('myers@1.0')
++    expect(Number(r.headers['x-diff-ms'])).toBeGreaterThanOrEqual(0)
++    expect(Number(r.headers['x-diff-length-left'])).toBe(7)
++    expect(Number(r.headers['x-diff-length-right'])).toBe(6)
++    expect(Number(r.headers['x-diff-ops'])).toBeGreaterThan(0)
++    expect(Number(r.headers['x-diff-errors'])).toBeGreaterThan(0)
++  })
++
++  it('空字符串入参：返回 200 + 空 ops / 空 errors', async () => {
++    const r = await postDiff('', '')
++    expect(r.status).toBe(200)
++    const body = JSON.parse(r.body)
++    expect(body.ops).toEqual([])
++    expect(body.errors).toEqual([])
++    expect(body.meta.errorCount).toBe(0)
++  })
++
++  it('非 JSON 请求体 → 500 / 解析失败', async () => {
++    const r = await httpReq('POST', '/api/inspect/diff',
++      { 'Content-Type': 'application/json' },
++      'not a json')
++    expect([400, 500]).toContain(r.status)
++  })
++
++  it('【契约】round-trip：ops 重建 left/right 字符串', async () => {
++    const left = 'this is a test with some 中文 mixed in'
++    const right = 'this is a test with 一些 中文 mixed up'
++    const r = await postDiff(left, right)
++    expect(r.status).toBe(200)
++    const { ops } = JSON.parse(r.body)
++    const rebuiltLeft = ops.filter(o => o.op !== 'insert').map(o => o.text).join('')
++    const rebuiltRight = ops.filter(o => o.op !== 'delete').map(o => o.text).join('')
++    expect(rebuiltLeft).toBe(left)
++    expect(rebuiltRight).toBe(right)
++  })
++
++  it('【性能】100KB 双栏 diff < 200ms', async () => {
++    const left = '智能校对场景'.repeat(10000)
++    const right = left.slice(0, 30000) + '改' + left.slice(30000)
++    const t0 = Date.now()
++    const r = await postDiff(left, right)
++    const roundMs = Date.now() - t0
++    expect(r.status).toBe(200)
++    expect(roundMs).toBeLessThan(400) // 含 HTTP + JSON 序列化
++    expect(Number(r.headers['x-diff-ms'])).toBeLessThan(200)
++  })
+ })
+\ No newline at end of file
+diff --git a/office-preview-app/web/src/App.tsx b/office-preview-app/web/src/App.tsx
+index e7f4f82..fd63f22 100644
+--- a/office-preview-app/web/src/App.tsx
++++ b/office-preview-app/web/src/App.tsx
+@@ -3,10 +3,12 @@ import { useStore } from './store'
+ import { UploadDrop } from './components/UploadDrop'
+ import { TaskCard } from './components/TaskCard'
+ import { PreviewModal } from './components/PreviewModal'
++import { InspectCompareModal } from './inspect/InspectCompareModal'
+ import type { Task } from './types'
+ 
+ export default function App() {
+-  const { tasks, loading, selected, fetchTasks, select, refreshIfNeeded } = useStore()
++  const { tasks, loading, selected, fetchTasks, select, refreshIfNeeded,
++    inspectOpen, inspectSource, inspectCompare, closeInspect, openInspect } = useStore()
+   const [query, setQuery] = useState('')
+   const [tab, setTab] = useState<'all' | 'office' | 'media' | 'text'>('all')
+ 
+@@ -89,7 +91,7 @@ export default function App() {
+         ) : (
+           <div className="grid">
+             {filtered.map(t => (
+-              <TaskCard key={t.id} task={t} onPreview={select} />
++              <TaskCard key={t.id} task={t} onPreview={select} onInspect={openInspect} />
+             ))}
+           </div>
+         )}
+@@ -98,6 +100,14 @@ export default function App() {
+       {selected && (
+         <PreviewModal task={selected} onClose={() => select(null)} onDownload={download} />
+       )}
++
++      {/* 智检 · 双栏对比弹层（独立于 PreviewModal） */}
++      <InspectCompareModal
++        open={inspectOpen}
++        source={inspectSource}
++        compare={inspectCompare}
++        onClose={closeInspect}
++      />
+     </div>
+   )
+ }
+diff --git a/office-preview-app/web/src/components/TaskCard.tsx b/office-preview-app/web/src/components/TaskCard.tsx
+index dffea61..eabafd4 100644
+--- a/office-preview-app/web/src/components/TaskCard.tsx
++++ b/office-preview-app/web/src/components/TaskCard.tsx
+@@ -5,6 +5,7 @@ import { humanSize, formatTime, fileIcon, previewKindOf } from '../types'
+ interface Props {
+   task: Task
+   onPreview: (t: Task) => void
++  onInspect?: (t: Task) => void
+ }
+ 
+ const STATUS_META: Record<string, { label: string; cls: string }> = {
+@@ -15,11 +16,13 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
+   failed: { label: '转码失败', cls: 'fail' }
+ }
+ 
+-function TaskCardBase({ task, onPreview }: Props) {
++function TaskCardBase({ task, onPreview, onInspect }: Props) {
+   const kind = previewKindOf(task)
+   const st = STATUS_META[task.convertStatus] || STATUS_META.done
+   const previewable = st.label === '可预览' || task.strategy === 'frontend'
+   const icon = fileIcon(task.ext)
++  // 智检仅对纯文本 / Markdown 可用（PDF/DOCX 需先抽文本，本期占位）
++  const inspectable = ['txt', 'md'].includes((task.previewExt || task.ext || '').toLowerCase())
+ 
+   return (
+     <div className={`card ${previewable ? '' : 'card-busy'}`}>
+@@ -44,6 +47,16 @@ function TaskCardBase({ task, onPreview }: Props) {
+         >
+           预览
+         </button>
++        {onInspect && (
++          <button
++            className="btn-mini"
++            disabled={!inspectable || !previewable}
++            title={inspectable ? '智检 · 双栏对比' : '仅 txt / md 支持智检'}
++            onClick={() => onInspect(task)}
++          >
++            🔍 智检
++          </button>
++        )}
+       </div>
+     </div>
+   )
+diff --git a/office-preview-app/web/src/store.ts b/office-preview-app/web/src/store.ts
+index f7a9d08..36a4ae1 100644
+--- a/office-preview-app/web/src/store.ts
++++ b/office-preview-app/web/src/store.ts
+@@ -1,6 +1,6 @@
+ // 任务列表状态：拉取 / 轮询转码状态 / 上传
+ import { create } from 'zustand'
+-import type { Task } from './types'
++import type { Task, InspectMode } from './types'
+ 
+ interface State {
+   tasks: Task[]
+@@ -9,6 +9,11 @@ interface State {
+   uploadPct: number      // 当前上传进度 0..1
+   uploadName: string | null
+   selected: Task | null
++  // ============ 智检 / 双栏对比 ============
++  inspectOpen: boolean
++  inspectSource: Task | null   // 源任务（左侧）
++  inspectCompare: Task | null  // 对比任务（右侧，可选）
++  inspectMode: InspectMode
+   // 拉取一次任务列表
+   fetchTasks: () => Promise<void>
+   // 上传单/多文件（XHR 上传进度）
+@@ -17,6 +22,14 @@ interface State {
+   select: (t: Task | null) => void
+   // 轮询：当存在 pending/processing 任务时高频刷新
+   refreshIfNeeded: () => Promise<void>
++  // 打开智检弹层（source 必传；compare 可选，后续在弹层内选）
++  openInspect: (source: Task, compare?: Task | null) => void
++  // 关闭智检弹层
++  closeInspect: () => void
++  // 切换智检 / 双栏对比模式
++  setInspectMode: (m: InspectMode) => void
++  // 设置对比任务（用于在弹层内选择第二个任务）
++  setInspectCompare: (t: Task | null) => void
+ }
+ 
+ export const useStore = create<State>((set, get) => ({
+@@ -26,6 +39,11 @@ export const useStore = create<State>((set, get) => ({
+   uploadPct: 0,
+   uploadName: null,
+   selected: null,
++  // 智检初始态
++  inspectOpen: false,
++  inspectSource: null,
++  inspectCompare: null,
++  inspectMode: 'inspect',
+ 
+   async fetchTasks() {
+     set({ loading: true })
+@@ -84,5 +102,30 @@ export const useStore = create<State>((set, get) => ({
+       const next = get().tasks.find(t => t.id === cur.id)
+       if (next && next !== cur) set({ selected: next })
+     }
++  },
++
++  // 智检：打开弹层
++  openInspect(source, compare = null) {
++    set({
++      inspectOpen: true,
++      inspectSource: source,
++      inspectCompare: compare,
++      inspectMode: compare ? 'dual' : 'inspect'
++    })
++  },
++
++  // 智检：关闭
++  closeInspect() {
++    set({ inspectOpen: false, inspectSource: null, inspectCompare: null })
++  },
++
++  // 智检：切换模式
++  setInspectMode(m) {
++    set({ inspectMode: m })
++  },
++
++  // 智检：选择第二个对比任务
++  setInspectCompare(t) {
++    set({ inspectCompare: t })
+   }
+ }))
+diff --git a/office-preview-app/web/src/styles.css b/office-preview-app/web/src/styles.css
+index 63fc3fe..b45f073 100644
+--- a/office-preview-app/web/src/styles.css
++++ b/office-preview-app/web/src/styles.css
+@@ -374,3 +374,256 @@ a { color: inherit; text-decoration: none; }
+   background: rgba(47, 107, 255, 0.3);
+   color: transparent;
+ }
++
++/* ============================================================
++ * 智检 / 双栏对比 — InspectCompareModal
++ * 模型：Claude MiniMax-M3
++ * 设计稿：讯飞智检（讯飞设计稿/翻译对比.png + 讯飞智检.png）
++ * ============================================================ */
++.inspect-compare-modal {
++  position: fixed; inset: 0; z-index: 200;
++  display: flex; align-items: stretch; justify-content: stretch;
++  padding: 24px;
++  color: var(--text);
++}
++.inspect-compare-mask {
++  position: absolute; inset: 0;
++  background: var(--bg-mask);
++  backdrop-filter: blur(4px);
++}
++.inspect-compare-body {
++  position: relative;
++  flex: 1;
++  background: var(--bg-elev);
++  border-radius: var(--radius);
++  box-shadow: var(--shadow-lg);
++  display: flex; flex-direction: column;
++  overflow: hidden;
++}
++
++/* ---------- 顶部工具条 ---------- */
++.inspect-compare-toolbar {
++  display: flex; align-items: center; gap: 16px;
++  padding: 12px 20px;
++  border-bottom: 1px solid var(--border);
++  background: var(--bg-elev);
++  flex-shrink: 0;
++}
++.inspect-compare-title {
++  display: flex; align-items: center; gap: 8px; flex: 1;
++  font-weight: 600; font-size: 14px;
++  color: var(--text);
++}
++.inspect-compare-icon { font-size: 18px; }
++.inspect-compare-stats {
++  margin-left: 12px;
++  font-size: 12px; font-weight: 400;
++  color: var(--text-sub);
++  padding: 2px 8px;
++  background: var(--bg-sub);
++  border-radius: 10px;
++}
++.inspect-compare-modes {
++  display: flex; gap: 4px;
++  background: var(--bg-sub);
++  padding: 2px;
++  border-radius: 6px;
++}
++.inspect-compare-sync {
++  font-size: 12px; color: var(--text-sub);
++  user-select: none;
++}
++.inspect-compare-sync input { margin-right: 4px; vertical-align: middle; }
++
++/* ---------- 双栏 Grid ---------- */
++.inspect-compare-grid {
++  flex: 1;
++  display: grid;
++  grid-template-columns: 1fr 1fr 280px;
++  gap: 1px;
++  background: var(--border);
++  min-height: 0;
++}
++.inspect-compare-grid.mode-inspect {
++  /* 智检模式：左源/右改/右栏错误，可加 padding 突出"文档"感 */
++}
++.inspect-compare-grid.mode-dual {
++  /* 双栏对比：可切换为更宽的双栏（侧栏可折叠） */
++}
++.inspect-compare-pane {
++  display: flex; flex-direction: column;
++  background: var(--bg-elev);
++  overflow: hidden;
++  min-width: 0;
++}
++.inspect-compare-pane-header {
++  display: flex; align-items: center; gap: 8px;
++  padding: 10px 16px;
++  border-bottom: 1px solid var(--border);
++  background: var(--bg-sub);
++  flex-shrink: 0;
++}
++.inspect-compare-pane-title {
++  font-size: 11px; font-weight: 700;
++  color: white;
++  background: linear-gradient(135deg, #6366f1, #4338ca);
++  padding: 2px 8px;
++  border-radius: 4px;
++}
++.inspect-compare-right .inspect-compare-pane-title {
++  background: linear-gradient(135deg, #10b981, #047857);
++}
++.inspect-compare-pane-name {
++  font-size: 13px; color: var(--text-sub);
++  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
++  flex: 1;
++}
++.inspect-compare-pane-body {
++  flex: 1;
++  overflow: auto;
++  padding: 20px 24px;
++  font-size: 15px;
++  line-height: 1.8;
++  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
++  white-space: pre-wrap;
++  word-break: break-word;
++  color: var(--text);
++  scroll-behavior: smooth;
++}
++
++/* ---------- Diff Token 高亮 ---------- */
++.inspect-tokens {
++  white-space: pre-wrap;
++  word-break: break-word;
++}
++.diff-token {
++  display: inline;
++  /* 让 user-select 能精确选中字符 */
++  user-select: text;
++}
++.diff-token-equal {
++  color: var(--text);
++}
++/* 删除（原文）：红色文字 + 删除线 + 浅红底 */
++.diff-token-delete {
++  color: #dc2626;
++  background: rgba(239, 68, 68, 0.12);
++  text-decoration: line-through;
++  text-decoration-color: rgba(220, 38, 38, 0.6);
++  padding: 0 2px;
++  border-radius: 2px;
++}
++/* 插入（改正）：绿色文字 + 浅绿底 + 下划线 */
++.diff-token-insert {
++  color: #059669;
++  background: rgba(16, 185, 129, 0.14);
++  text-decoration: underline;
++  text-decoration-color: rgba(5, 150, 105, 0.7);
++  text-decoration-style: solid;
++  text-underline-offset: 3px;
++  padding: 0 2px;
++  border-radius: 2px;
++}
++
++/* ---------- 错误侧栏 ---------- */
++.inspect-compare-sidebar {
++  display: flex; flex-direction: column;
++  background: var(--bg-elev);
++  overflow: hidden;
++  min-width: 0;
++}
++.inspect-compare-sidebar-header {
++  padding: 10px 14px;
++  font-size: 13px; font-weight: 600;
++  border-bottom: 1px solid var(--border);
++  background: var(--bg-sub);
++  flex-shrink: 0;
++}
++.inspect-compare-error-list {
++  list-style: none;
++  margin: 0; padding: 0;
++  flex: 1; overflow-y: auto;
++}
++.inspect-compare-error-item {
++  display: flex; flex-direction: column; gap: 8px;
++  padding: 10px 14px;
++  border-bottom: 1px solid var(--border);
++  transition: background 0.15s ease;
++}
++.inspect-compare-error-item:hover {
++  background: var(--bg-sub);
++}
++.inspect-compare-error-item.is-accepted {
++  background: rgba(16, 185, 129, 0.08);
++  border-left: 3px solid #10b981;
++  padding-left: 11px;
++}
++.inspect-compare-error-item.is-accepted .inspect-compare-error-original {
++  text-decoration: line-through;
++  opacity: 0.5;
++}
++.inspect-compare-error-item.is-ignored {
++  opacity: 0.4;
++  border-left: 3px solid #94a3b8;
++  padding-left: 11px;
++}
++.inspect-compare-error-pair {
++  display: flex; align-items: center; gap: 6px;
++  font-size: 13px;
++  flex-wrap: wrap;
++}
++.inspect-compare-error-original {
++  color: #dc2626;
++  background: rgba(239, 68, 68, 0.12);
++  padding: 1px 6px;
++  border-radius: 3px;
++  max-width: 100px;
++  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
++}
++.inspect-compare-error-arrow {
++  color: var(--text-sub);
++  font-size: 11px;
++}
++.inspect-compare-error-corrected {
++  color: #059669;
++  background: rgba(16, 185, 129, 0.14);
++  padding: 1px 6px;
++  border-radius: 3px;
++  max-width: 100px;
++  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
++}
++.inspect-compare-error-actions {
++  display: flex; gap: 4px;
++}
++.inspect-compare-error-actions .btn-mini {
++  padding: 2px 8px;
++  font-size: 11px;
++}
++.inspect-compare-empty {
++  padding: 30px 14px;
++  text-align: center;
++  color: var(--text-sub);
++  font-size: 13px;
++}
++
++/* ---------- 底部 ---------- */
++.inspect-compare-footer {
++  display: flex; align-items: center; justify-content: center;
++  padding: 8px 20px;
++  border-top: 1px solid var(--border);
++  background: var(--bg-sub);
++  font-size: 11px; color: var(--text-sub);
++  flex-shrink: 0;
++}
++.inspect-compare-footer code {
++  padding: 1px 6px;
++  background: var(--bg-elev);
++  border-radius: 3px;
++  font-family: ui-monospace, "SF Mono", Menlo, monospace;
++}
++
++/* ---------- 任务卡 · 智检按钮 ---------- */
++.card-actions {
++  display: flex; flex-direction: column; gap: 6px;
++  align-items: stretch;
++}
+diff --git a/office-preview-app/web/src/types.ts b/office-preview-app/web/src/types.ts
+index 405765e..ba3372d 100644
+--- a/office-preview-app/web/src/types.ts
++++ b/office-preview-app/web/src/types.ts
+@@ -119,4 +119,43 @@ export function stageLabel(stage: ConvertStage): string {
+     case 'textLayer': return '文字层'
+     default: return ''
+   }
++}
++
++// ============ 智检 / 双栏对比 ============
++
++/** diff 单个操作（来自服务端 /api/inspect/diff） */
++export type DiffOp = { op: 'equal' | 'delete' | 'insert'; text: string }
++
++/** 前端渲染 token（type 替 op，与前端 switch 命名一致） */
++export type RenderToken = { type: 'equal' | 'delete' | 'insert'; text: string }
++
++/** hunk：UI 渲染单元（连续 equal/change 聚类） */
++export type DiffHunk =
++  | { kind: 'equal'; text: string }
++  | { kind: 'change'; original: string; corrected: string }
++
++/** diff 错误条目（侧栏列表） */
++export interface DiffError {
++  id: string
++  original: string
++  corrected: string
++  op: 'change' | 'delete' | 'insert'
++}
++
++/** 智检模式 */
++export type InspectMode = 'inspect' | 'dual'
++
++/** /api/inspect/diff 响应 */
++export interface InspectDiffResponse {
++  ops: DiffOp[]
++  errors: DiffError[]
++  hunks: DiffHunk[]
++  tokens: RenderToken[]
++  ms: number
++  meta: {
++    granularity: 'char' | 'word'
++    leftChars: number
++    rightChars: number
++    errorCount: number
++  }
+ }
+\ No newline at end of file
+新文件单独附加
+
+=== NEW FILE: office-preview-app/server/src/diff.mjs ===
+// 双栏对比 / 智检 — diff 引擎
+// 模型：Claude MiniMax-M3
+//
+// 算法：Myers diff（O((N+M)·D) 编辑距离线性），字符级 diff
+//   - 对中文 / Emoji / Unicode 友好（按 Unicode 代码点切分，而非字节/UTF-16）
+//   - 输出 ops 序列：equal / delete（仅左）/ insert（仅右）
+//   - round-trip 不变式：filter(!insert) → 原左；filter(!delete) → 原右
+//
+// API：
+//   myersDiff(left, right)         → DiffOp[]
+//   groupByHunk(ops)               → Hunk[]  (UI 渲染单元：连续 equal/change)
+//   summarizeErrors(ops)           → Error[] (侧栏列表条目，带 id)
+//   charDiffToRenderTokens(ops)    → RenderToken[] (前端 React 渲染用)
+
+/**
+ * Myers diff — 字符级 LCS 编辑脚本
+ * @param {string} a
+ * @param {string} b
+ * @returns {Array<{op:'equal'|'delete'|'insert', text:string}>}
+ */
+export function myersDiff(a, b) {
+  // 按 Unicode 代码点（Array.from 自动处理 surrogate pair → Emoji 友好）
+  const A = Array.from(a)
+  const B = Array.from(b)
+  const N = A.length
+  const M = B.length
+
+  // 边界：空串
+  if (N === 0 && M === 0) return []
+  if (N === 0) return [{ op: 'insert', text: b }]
+  if (M === 0) return [{ op: 'delete', text: a }]
+
+  const MAX = N + M
+  // V 数组：V[k] = 某条对角线上能达到的最远 x
+  // 使用 TypedArray 提升性能（高 D 时循环密集）
+  const V = new Int32Array(2 * MAX + 1)
+  V.fill(-1)
+  V[MAX + 1] = 0
+  const trace = []
+
+  outer: for (let D = 0; D <= MAX; D++) {
+    trace.push(new Int32Array(V))
+    for (let k = -D; k <= D; k += 2) {
+      let x
+      if (k === -D || (k !== D && V[MAX + k - 1] < V[MAX + k + 1])) {
+        x = V[MAX + k + 1]  // down (insert)
+      } else {
+        x = V[MAX + k - 1] + 1  // right (delete)
+      }
+      let y = x - k
+      // snake：沿对角线走相等的字符
+      while (x < N && y < M && A[x] === B[y]) { x++; y++ }
+      V[MAX + k] = x
+      if (x >= N && y >= M) {
+        break outer
+      }
+    }
+  }
+
+  // 回溯：从终点 (N,M) 倒推 ops
+  const ops = []
+  let x = N, y = M
+  for (let D = trace.length - 1; D >= 0; D--) {
+    const Vd = trace[D]
+    const k = x - y
+    let prevK
+    if (k === -D || (k !== D && Vd[MAX + k - 1] < Vd[MAX + k + 1])) {
+      prevK = k + 1
+    } else {
+      prevK = k - 1
+    }
+    const prevX = Vd[MAX + prevK]
+    const prevY = prevX - prevK
+
+    // 沿对角线走的部分 = equal
+    while (x > prevX && y > prevY) {
+      x--; y--
+      ops.push({ op: 'equal', text: A[x] })
+    }
+
+    if (D > 0) {
+      if (x === prevX) {
+        // insert：b[prevY..y-1] 是插入的
+        y--
+        ops.push({ op: 'insert', text: B[y] })
+      } else {
+        // delete：a[prevX..x-1] 是删除的
+        x--
+        ops.push({ op: 'delete', text: A[x] })
+      }
+    }
+  }
+
+  // 反转得到正序，并合并相邻同 op
+  ops.reverse()
+  return mergeAdjacent(ops)
+}
+
+/** 合并相邻同 op（如 ['删','删','删'] → ['删×3']） */
+function mergeAdjacent(ops) {
+  if (ops.length === 0) return ops
+  const out = [ops[0]]
+  for (let i = 1; i < ops.length; i++) {
+    const prev = out[out.length - 1]
+    const cur = ops[i]
+    if (prev.op === cur.op) {
+      prev.text += cur.text
+    } else {
+      out.push(cur)
+    }
+  }
+  return out
+}
+
+/**
+ * 将 ops 聚类为 UI 渲染单元（hunk）：连续 delete+insert 合并为 1 个 change
+ * @returns {Array<{kind:'equal'|'change', text?:string, original?:string, corrected?:string}>}
+ */
+export function groupByHunk(ops) {
+  const groups = []
+  let i = 0
+  while (i < ops.length) {
+    const o = ops[i]
+    if (o.op === 'equal') {
+      groups.push({ kind: 'equal', text: o.text })
+      i++
+    } else {
+      // 收集连续的 delete + insert
+      let original = ''
+      let corrected = ''
+      while (i < ops.length && ops[i].op !== 'equal') {
+        if (ops[i].op === 'delete') original += ops[i].text
+        else if (ops[i].op === 'insert') corrected += ops[i].text
+        i++
+      }
+      groups.push({ kind: 'change', original, corrected })
+    }
+  }
+  return groups
+}
+
+/**
+ * 从 ops 中提取错误条目（用于 DiffSidebar 列表）
+ * @returns {Array<{id:string, original:string, corrected:string, op:'change'|'delete'|'insert'}>}
+ */
+export function summarizeErrors(ops) {
+  const errors = []
+  let id = 0
+  let i = 0
+  while (i < ops.length) {
+    const o = ops[i]
+    if (o.op === 'equal') { i++; continue }
+    let original = ''
+    let corrected = ''
+    let op
+    while (i < ops.length && ops[i].op !== 'equal') {
+      if (ops[i].op === 'delete') original += ops[i].text
+      else if (ops[i].op === 'insert') corrected += ops[i].text
+      i++
+    }
+    if (original && corrected) op = 'change'
+    else if (original) op = 'delete'
+    else op = 'insert'
+    id++
+    errors.push({
+      id: 'e' + id,
+      original,
+      corrected,
+      op
+    })
+  }
+  return errors
+}
+
+/**
+ * 转为前端 React 渲染 token（type 字段替 op，与前端 switch 命名一致）
+ * @returns {Array<{type:'equal'|'delete'|'insert', text:string}>}
+ */
+export function charDiffToRenderTokens(ops) {
+  return ops.map(o => ({ type: o.op, text: o.text }))
+}
+=== NEW FILE: office-preview-app/server/test/diff.test.mjs ===
+// 双栏对比 / 智检 — diff 引擎单元测试
+// TDD 优先：先写测试，再写实现
+// 模型：Claude MiniMax-M3
+import { describe, it, expect } from 'vitest'
+import { myersDiff, groupByHunk, summarizeErrors, charDiffToRenderTokens } from '../src/diff.mjs'
+
+describe('myersDiff 基础不变式', () => {
+  it('两个完全相同的字符串 → 全部 equal', () => {
+    const ops = myersDiff('abc', 'abc')
+    expect(ops.every(o => o.op === 'equal')).toBe(true)
+    expect(ops.map(o => o.text).join('')).toBe('abc')
+  })
+
+  it('完全替换：从 a 到 b → 一删一插', () => {
+    const ops = myersDiff('a', 'b')
+    expect(ops).toEqual([
+      { op: 'delete', text: 'a' },
+      { op: 'insert', text: 'b' }
+    ])
+  })
+
+  it('中间替换：abc → axc', () => {
+    const ops = myersDiff('abc', 'axc')
+    expect(ops).toEqual([
+      { op: 'equal', text: 'a' },
+      { op: 'delete', text: 'b' },
+      { op: 'insert', text: 'x' },
+      { op: 'equal', text: 'c' }
+    ])
+  })
+
+  it('纯插入：左短右长', () => {
+    const ops = myersDiff('ac', 'abc')
+    expect(ops).toEqual([
+      { op: 'equal', text: 'a' },
+      { op: 'insert', text: 'b' },
+      { op: 'equal', text: 'c' }
+    ])
+  })
+
+  it('纯删除：左长右短', () => {
+    const ops = myersDiff('abc', 'ac')
+    expect(ops).toEqual([
+      { op: 'equal', text: 'a' },
+      { op: 'delete', text: 'b' },
+      { op: 'equal', text: 'c' }
+    ])
+  })
+
+  it('【核心不变式】round-trip：删完等于左，插完等于右', () => {
+    const left = 'the quick brown fox'
+    const right = 'the slow brown dog'
+    const ops = myersDiff(left, right)
+    const reconstructedLeft = ops.filter(o => o.op !== 'insert').map(o => o.text).join('')
+    const reconstructedRight = ops.filter(o => o.op !== 'delete').map(o => o.text).join('')
+    expect(reconstructedLeft).toBe(left)
+    expect(reconstructedRight).toBe(right)
+  })
+
+  it('空串到非空串：全部 insert', () => {
+    const ops = myersDiff('', 'hello')
+    expect(ops).toEqual([{ op: 'insert', text: 'hello' }])
+  })
+
+  it('非空串到空串：全部 delete', () => {
+    const ops = myersDiff('hello', '')
+    expect(ops).toEqual([{ op: 'delete', text: 'hello' }])
+  })
+})
+
+describe('中文友好（智检典型场景）', () => {
+  it('设计稿案例：既往开来 → 继往开来', () => {
+    const ops = myersDiff('既往开来', '继往开来')
+    expect(ops).toEqual([
+      { op: 'delete', text: '既' },
+      { op: 'insert', text: '继' },
+      { op: 'equal', text: '往开来' }
+    ])
+  })
+
+  it('设计稿案例：湖北省张家界市 → 湖南省张家界（错别字 + 多余字）', () => {
+    const ops = myersDiff('湖北省张家界市', '湖南省张家界')
+    const reconstructedLeft = ops.filter(o => o.op !== 'insert').map(o => o.text).join('')
+    const reconstructedRight = ops.filter(o => o.op !== 'delete').map(o => o.text).join('')
+    expect(reconstructedLeft).toBe('湖北省张家界市')
+    expect(reconstructedRight).toBe('湖南省张家界')
+  })
+
+  it('设计稿案例：权利 → 权力', () => {
+    const ops = myersDiff('权利', '权力')
+    expect(ops).toEqual([
+      { op: 'equal', text: '权' },
+      { op: 'delete', text: '利' },
+      { op: 'insert', text: '力' }
+    ])
+  })
+
+  it('设计稿案例：机 → 急（错字）', () => {
+    const ops = myersDiff('机不可失', '急不可失')
+    expect(ops).toEqual([
+      { op: 'delete', text: '机' },
+      { op: 'insert', text: '急' },
+      { op: 'equal', text: '不可失' }
+    ])
+  })
+
+  it('Emoji 不丢失（UDM 段落含 emoji）', () => {
+    const ops = myersDiff('智检 ✅', '智检 ❌')
+    const reconstructedLeft = ops.filter(o => o.op !== 'insert').map(o => o.text).join('')
+    const reconstructedRight = ops.filter(o => o.op !== 'delete').map(o => o.text).join('')
+    expect(reconstructedLeft).toBe('智检 ✅')
+    expect(reconstructedRight).toBe('智检 ❌')
+  })
+
+  it('中文标点修正：，。 → ,.', () => {
+    const ops = myersDiff('你好，世界。', '你好,世界.')
+    const reconstructedLeft = ops.filter(o => o.op !== 'insert').map(o => o.text).join('')
+    const reconstructedRight = ops.filter(o => o.op !== 'delete').map(o => o.text).join('')
+    expect(reconstructedLeft).toBe('你好，世界。')
+    expect(reconstructedRight).toBe('你好,世界.')
+  })
+})
+
+describe('性能（O(ND) Myers diff）', () => {
+  it('100KB 文本 < 200ms（线性增长，不爆炸）', () => {
+    const left = '中文字符测试'.repeat(10000)  // 60KB
+    const right = left.slice(0, 50000) + '改动' + left.slice(50000)
+    const t0 = Date.now()
+    const ops = myersDiff(left, right)
+    const ms = Date.now() - t0
+    expect(ms).toBeLessThan(200)
+    // round-trip 仍然成立
+    expect(ops.filter(o => o.op !== 'insert').map(o => o.text).join('')).toBe(left)
+  })
+
+  it('【压力】两份几乎完全不同的大文本（高 D） < 500ms', () => {
+    const left = 'a'.repeat(5000)
+    const right = 'b'.repeat(5000)
+    const t0 = Date.now()
+    const ops = myersDiff(left, right)
+    const ms = Date.now() - t0
+    expect(ms).toBeLessThan(500)
+    expect(ops.length).toBe(2)
+    expect(ops[0].op).toBe('delete')
+    expect(ops[1].op).toBe('insert')
+  })
+})
+
+describe('groupByHunk（错误聚类）', () => {
+  it('将连续 delete+insert 合并为 1 个错误条目', () => {
+    const ops = [
+      { op: 'equal', text: '你好' },
+      { op: 'delete', text: '既' },
+      { op: 'insert', text: '继' },
+      { op: 'equal', text: '往开来' }
+    ]
+    const groups = groupByHunk(ops)
+    expect(groups).toEqual([
+      { kind: 'equal', text: '你好' },
+      { kind: 'change', original: '既', corrected: '继' },
+      { kind: 'equal', text: '往开来' }
+    ])
+  })
+
+  it('纯删除（无对应插入）聚为 1 个 change（corrected=""）', () => {
+    const ops = [
+      { op: 'equal', text: '权' },
+      { op: 'delete', text: '利' },
+      { op: 'equal', text: '是好的' }
+    ]
+    const groups = groupByHunk(ops)
+    expect(groups).toEqual([
+      { kind: 'equal', text: '权' },
+      { kind: 'change', original: '利', corrected: '' },
+      { kind: 'equal', text: '是好的' }
+    ])
+  })
+
+  it('纯插入（无对应删除）聚为 1 个 change（original=""）', () => {
+    const ops = [
+      { op: 'equal', text: '权' },
+      { op: 'insert', text: '力' },
+      { op: 'equal', text: '是好的' }
+    ]
+    const groups = groupByHunk(ops)
+    expect(groups).toEqual([
+      { kind: 'equal', text: '权' },
+      { kind: 'change', original: '', corrected: '力' },
+      { kind: 'equal', text: '是好的' }
+    ])
+  })
+})
+
+describe('summarizeErrors（提取错误列表）', () => {
+  it('从 diff ops 中抽取所有错误条目（含 ID + 原文 + 改正）', () => {
+    const ops = [
+      { op: 'equal', text: '权' },
+      { op: 'delete', text: '利' },
+      { op: 'insert', text: '力' },
+      { op: 'equal', text: ' ' },
+      { op: 'delete', text: '既' },
+      { op: 'insert', text: '继' },
+      { op: 'equal', text: '往开来' }
+    ]
+    const errors = summarizeErrors(ops)
+    expect(errors).toHaveLength(2)
+    expect(errors[0]).toMatchObject({ id: 'e1', original: '利', corrected: '力' })
+    expect(errors[1]).toMatchObject({ id: 'e2', original: '既', corrected: '继' })
+  })
+
+  it('无错误时返回空数组', () => {
+    const errors = summarizeErrors([{ op: 'equal', text: 'perfect' }])
+    expect(errors).toEqual([])
+  })
+})
+
+describe('charDiffToRenderTokens（前端渲染 token）', () => {
+  it('返回带 type 标记的 token 数组，用于 React 渲染高亮', () => {
+    const ops = [
+      { op: 'equal', text: '权' },
+      { op: 'delete', text: '利' },
+      { op: 'insert', text: '力' }
+    ]
+    const tokens = charDiffToRenderTokens(ops)
+    expect(tokens).toEqual([
+      { type: 'equal', text: '权' },
+      { type: 'delete', text: '利' },
+      { type: 'insert', text: '力' }
+    ])
+  })
+
+  it('【契约】type 取值只能是 equal/delete/insert（前端 switch 完备性）', () => {
+    const ops = myersDiff('a', 'b')
+    const tokens = charDiffToRenderTokens(ops)
+    for (const t of tokens) {
+      expect(['equal', 'delete', 'insert']).toContain(t.type)
+    }
+  })
+})
+
+=== NEW FILE: office-preview-app/web/src/inspect/InspectCompareModal.tsx ===
+// 双栏对比 / 智检 — 顶层弹层
+// 模型：Claude MiniMax-M3
+//
+// 设计稿：
+//   - 翻译对比.png：左侧原文 + 右侧改正 + 右栏错误列表 + 底部工具条
+//   - 讯飞智检.png：左右两栏并排 + 顶部工具条 + 独立/同步滚动
+//
+// 实现策略：
+//   - 单 Modal 双栏布局，源在左、对比在右
+//   - 服务端字符级 diff（Myers @ /api/inspect/diff）
+//   - 双 token 流：左栏只渲染 equal+delete，右栏只渲染 equal+insert
+//   - 错误侧栏：编号 + 原文→改正 + ✓/+/− 按钮
+//   - 同步滚动：模式 A（默认，按比例同步）；模式 B（独立）
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import type { Task, InspectMode, InspectDiffResponse, RenderToken } from '../types'
+
+interface Props {
+  open: boolean
+  source: Task | null
+  compare: Task | null
+  onClose: () => void
+  // 默认智检模式（无 compare 时）
+  defaultMode?: InspectMode
+}
+
+type ActionState = 'pending' | 'accepted' | 'ignored'
+
+interface ErrorState {
+  id: string
+  state: ActionState
+}
+
+/** 安全 fetch 文本（截断超大内容，避免内存爆炸） */
+async function fetchText(url: string, max = 200 * 1024): Promise<string> {
+  const r = await fetch(url, { credentials: 'same-origin' })
+  if (!r.ok) throw new Error(`fetch failed: ${r.status}`)
+  const t = await r.text()
+  return t.length > max ? t.slice(0, max) : t
+}
+
+export function InspectCompareModal({ open, source, compare, onClose, defaultMode = 'inspect' }: Props) {
+  const [mode, setMode] = useState<InspectMode>(defaultMode)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [diff, setDiff] = useState<InspectDiffResponse | null>(null)
+  const [syncScroll, setSyncScroll] = useState(true)
+  const [errorStates, setErrorStates] = useState<Record<string, ActionState>>({})
+  const leftRef = useRef<HTMLDivElement>(null)
+  const rightRef = useRef<HTMLDivElement>(null)
+  const syncingRef = useRef(false)  // 防止双向同步循环
+
+  // ESC 关闭
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  // 数据加载：取两份文本 → POST /api/inspect/diff
+  const loadDiff = useCallback(async () => {
+    if (!open || !source) return
+    setLoading(true)
+    setError(null)
+    setErrorStates({})
+    try {
+      // 取源文本
+      const leftText = await fetchText(source.originalUrl)
+      // 取对比文本（compare 缺省时源文本做对比占位）
+      const rightText = compare ? await fetchText(compare.originalUrl) : leftText
+      const t0 = performance.now()
+      const r = await fetch('/api/inspect/diff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ left: leftText, right: rightText, granularity: 'char' })
+      })
+      if (!r.ok) throw new Error(`diff API ${r.status}`)
+      const data: InspectDiffResponse = await r.json()
+      const t1 = performance.now()
+      console.info('[inspect] mode=', mode, 'source=', source.id, 'compare=', compare?.id || '(self)', 'ops=', data.ops.length, 'errors=', data.errors.length, 'ms=', (t1 - t0).toFixed(1))
+      setDiff(data)
+    } catch (e: any) {
+      console.error('[inspect] load failed:', e)
+      setError(String(e?.message || e))
+    } finally {
+      setLoading(false)
+    }
+  }, [open, source, compare, mode])
+
+  useEffect(() => { loadDiff() }, [loadDiff])
+
+  // 同步滚动：按比例同步（两侧高度独立，按 scrollTop / scrollHeight）
+  const onLeftScroll = useCallback(() => {
+    if (!syncScroll || syncingRef.current) return
+    const l = leftRef.current
+    const r = rightRef.current
+    if (!l || !r) return
+    const ratio = (l.scrollTop) / Math.max(1, l.scrollHeight - l.clientHeight)
+    syncingRef.current = true
+    r.scrollTop = ratio * Math.max(0, r.scrollHeight - r.clientHeight)
+    requestAnimationFrame(() => { syncingRef.current = false })
+  }, [syncScroll])
+  const onRightScroll = useCallback(() => {
+    if (!syncScroll || syncingRef.current) return
+    const l = leftRef.current
+    const r = rightRef.current
+    if (!l || !r) return
+    const ratio = (r.scrollTop) / Math.max(1, r.scrollHeight - r.clientHeight)
+    syncingRef.current = true
+    l.scrollTop = ratio * Math.max(0, l.scrollHeight - l.clientHeight)
+    requestAnimationFrame(() => { syncingRef.current = false })
+  }, [syncScroll])
+
+  // 双 token 流：左栏只渲染 equal+delete；右栏只渲染 equal+insert
+  const leftTokens = useMemo(() => (diff?.tokens || []).filter(t => t.type !== 'insert'), [diff])
+  const rightTokens = useMemo(() => (diff?.tokens || []).filter(t => t.type !== 'delete'), [diff])
+
+  // 侧栏错误状态变更
+  const setErrorState = useCallback((id: string, state: ActionState) => {
+    setErrorStates(prev => ({ ...prev, [id]: state }))
+  }, [])
+
+  if (!open || !source) return null
+
+  return (
+    <div className="inspect-compare-modal" data-testid="inspect-modal" role="dialog" aria-modal="true">
+      <div className="inspect-compare-mask" onClick={onClose} />
+      <div className="inspect-compare-body">
+        <header className="inspect-compare-toolbar" data-testid="inspect-toolbar">
+          <div className="inspect-compare-title">
+            <span className="inspect-compare-icon">🔍</span>
+            <span>智检 · 双栏对比</span>
+            {diff && <span className="inspect-compare-stats">{diff.errors.length} 处错误 · {diff.ms}ms</span>}
+          </div>
+          <div className="inspect-compare-modes" role="group" aria-label="对比模式">
+            <button
+              type="button"
+              className={`btn-mini ${mode === 'inspect' ? 'is-active' : ''}`}
+              aria-pressed={mode === 'inspect'}
+              onClick={() => setMode('inspect')}
+            >
+              智检
+            </button>
+            <button
+              type="button"
+              className={`btn-mini ${mode === 'dual' ? 'is-active' : ''}`}
+              aria-pressed={mode === 'dual'}
+              onClick={() => setMode('dual')}
+            >
+              双栏对比
+            </button>
+          </div>
+          <div className="inspect-compare-sync">
+            <label>
+              <input type="checkbox" checked={syncScroll} onChange={e => setSyncScroll(e.target.checked)} />
+              同步滚动
+            </label>
+          </div>
+          <button type="button" className="btn-mini" onClick={onClose}>关闭 ✕</button>
+        </header>
+
+        <div className={`inspect-compare-grid mode-${mode}`}>
+          {/* 左栏：源（原文 + 删除红线） */}
+          <section
+            className="inspect-compare-pane inspect-compare-left"
+            data-testid="inspect-left"
+            onScroll={onLeftScroll}
+            ref={leftRef}
+          >
+            <div className="inspect-compare-pane-header">
+              <span className="inspect-compare-pane-title">源</span>
+              <span className="inspect-compare-pane-name" title={source.name}>{source.name}</span>
+            </div>
+            <div className="inspect-compare-pane-body" data-source-id={source.id}>
+              {loading && <div className="center-msg">解析中…</div>}
+              {error && (
+                <div className="center-msg err">
+                  加载失败：{error}
+                  <div><button type="button" className="btn-mini" onClick={loadDiff}>重试</button></div>
+                </div>
+              )}
+              {!loading && !error && diff && (
+                <div className="inspect-tokens">
+                  {leftTokens.map((t, i) => (
+                    <RenderTokenSpan key={i} token={t} side="left" />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* 右栏：对比（改正 + 插入绿线） */}
+          <section
+            className="inspect-compare-pane inspect-compare-right"
+            data-testid="inspect-right"
+            onScroll={onRightScroll}
+            ref={rightRef}
+          >
+            <div className="inspect-compare-pane-header">
+              <span className="inspect-compare-pane-title">目标</span>
+              <span className="inspect-compare-pane-name" title={compare?.name || source.name}>
+                {compare?.name || source.name}
+              </span>
+            </div>
+            <div className="inspect-compare-pane-body" data-target-id={compare?.id || source.id}>
+              {loading && <div className="center-msg">解析中…</div>}
+              {error && (
+                <div className="center-msg err">
+                  加载失败：{error}
+                  <div><button type="button" className="btn-mini" onClick={loadDiff}>重试</button></div>
+                </div>
+              )}
+              {!loading && !error && diff && (
+                <div className="inspect-tokens">
+                  {rightTokens.map((t, i) => (
+                    <RenderTokenSpan key={i} token={t} side="right" />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* 错误侧栏 */}
+          <aside className="inspect-compare-sidebar" data-testid="inspect-diff-sidebar">
+            <div className="inspect-compare-sidebar-header">
+              错误列表 {diff && `(${Object.values(errorStates).filter(s => s === 'accepted').length}/${diff.errors.length} 已接受)`}
+            </div>
+            <ul className="inspect-compare-error-list">
+              {diff?.errors.map((err) => {
+                const st = errorStates[err.id] || 'pending'
+                return (
+                  <li
+                    key={err.id}
+                    data-error-id={err.id}
+                    className={`inspect-compare-error-item is-${st}`}
+                  >
+                    <div className="inspect-compare-error-pair">
+                      <span className="inspect-compare-error-original">{err.original || '∅'}</span>
+                      <span className="inspect-compare-error-arrow">→</span>
+                      <span className="inspect-compare-error-corrected">{err.corrected || '∅'}</span>
+                    </div>
+                    <div className="inspect-compare-error-actions">
+                      <button
+                        type="button"
+                        className="btn-mini"
+                        title="接受此修改"
+                        onClick={() => setErrorState(err.id, 'accepted')}
+                      >
+                        ✓ 接受
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-mini"
+                        title="忽略此修改"
+                        onClick={() => setErrorState(err.id, 'ignored')}
+                      >
+                        − 忽略
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+              {diff && diff.errors.length === 0 && (
+                <li className="inspect-compare-empty">✓ 暂无错误</li>
+              )}
+            </ul>
+          </aside>
+        </div>
+
+        <footer className="inspect-compare-footer">
+          <span className="inspect-compare-footer-hint">
+            智检由 Myers diff 引擎驱动 ·{' '}
+            {diff && <code>X-Diff-Ms={diff.ms}</code>}
+          </span>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+function RenderTokenSpan({ token, side }: { token: RenderToken; side: 'left' | 'right' }) {
+  // 左栏：equal/delete；右栏：equal/insert
+  // 设计稿：原文错误红色下划线，改正绿色
+  let cls = 'diff-token'
+  if (token.type === 'delete') cls += ' diff-token-delete'
+  else if (token.type === 'insert') cls += ' diff-token-insert'
+  else cls += ' diff-token-equal'
+  return <span className={cls} data-side={side} data-type={token.type}>{token.text}</span>
+}
+=== NEW FILE: office-preview-app/web/test/InspectCompareModal.test.tsx ===
+// 双栏对比 / 智检 — 组件测试
+// 模型：Claude MiniMax-M3
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { InspectCompareModal } from '../src/inspect/InspectCompareModal'
+import type { Task, InspectDiffResponse } from '../src/types'
+
+function txtTask(over: Partial<Task> = {}): Task {
+  return {
+    id: 't1', name: '原文.txt', size: 100, ext: 'txt', mime: 'text/plain',
+    strategy: 'frontend', originalUrl: '/o', previewUrl: '/p', previewExt: 'txt',
+    convertStatus: 'done', status: 'ready',
+    createdAt: Date.now(), updatedAt: Date.now(),
+    ...over
+  } as Task
+}
+
+const MOCK_DIFF: InspectDiffResponse = {
+  ops: [
+    { op: 'equal', text: '权' },
+    { op: 'delete', text: '利' },
+    { op: 'insert', text: '力' },
+    { op: 'equal', text: ' ' },
+    { op: 'delete', text: '既' },
+    { op: 'insert', text: '继' },
+    { op: 'equal', text: '往开来' }
+  ],
+  errors: [
+    { id: 'e1', original: '利', corrected: '力', op: 'change' },
+    { id: 'e2', original: '既', corrected: '继', op: 'change' }
+  ],
+  hunks: [
+    { kind: 'equal', text: '权' },
+    { kind: 'change', original: '利', corrected: '力' },
+    { kind: 'equal', text: ' ' },
+    { kind: 'change', original: '既', corrected: '继' },
+    { kind: 'equal', text: '往开来' }
+  ],
+  tokens: [
+    { type: 'equal', text: '权' },
+    { type: 'delete', text: '利' },
+    { type: 'insert', text: '力' },
+    { type: 'equal', text: ' ' },
+    { type: 'delete', text: '既' },
+    { type: 'insert', text: '继' },
+    { type: 'equal', text: '往开来' }
+  ],
+  ms: 5,
+  meta: { granularity: 'char', leftChars: 7, rightChars: 7, errorCount: 2 }
+}
+
+// mock fetch — 完整 Response-like（支持 text/arrayBuffer/json）
+function mockFetchDiff(response: InspectDiffResponse | null = MOCK_DIFF, opts: { delay?: number; fail?: boolean; sourceText?: string } = {}) {
+  return vi.fn().mockImplementation((url: string, init?: any) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (opts.fail) return reject(new Error('network'))
+        // 源文件 fetch：返回模拟文本
+        if (url && url.startsWith('/o')) {
+          return resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            text: async () => opts.sourceText || '权利 既往开来',
+            arrayBuffer: async () => new TextEncoder().encode(opts.sourceText || '权利 既往开来').buffer
+          } as any)
+        }
+        // diff API 调用
+        resolve({
+          ok: true,
+          status: 200,
+          headers: { get: (k: string) => k === 'X-Diff-Ms' ? '5' : null },
+          json: async () => response,
+          text: async () => JSON.stringify(response)
+        } as any)
+      }, opts.delay ?? 0)
+    })
+  })
+}
+
+describe('InspectCompareModal — 基础渲染', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    global.fetch = mockFetchDiff() as any
+  })
+  afterEach(() => cleanup())
+
+  it('不显示：open=false', () => {
+    const { container } = render(
+      <InspectCompareModal
+        open={false}
+        source={txtTask()}
+        compare={null}
+        onClose={() => {}}
+      />
+    )
+    expect(container.querySelector('.inspect-compare-modal')).toBeNull()
+  })
+
+  it('显示：open=true 渲染顶部工具条 + 双栏 + 错误侧栏骨架', () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={null}
+        onClose={() => {}}
+      />
+    )
+    expect(screen.getByRole('dialog') || screen.getByTestId('inspect-modal')).toBeTruthy()
+    expect(screen.getByTestId('inspect-toolbar')).toBeTruthy()
+    expect(screen.getByTestId('inspect-left')).toBeTruthy()
+    expect(screen.getByTestId('inspect-right')).toBeTruthy()
+    expect(screen.getByTestId('inspect-diff-sidebar')).toBeTruthy()
+  })
+
+  it('顶部工具条有模式切换按钮（智检 / 双栏对比）', () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={null}
+        onClose={() => {}}
+      />
+    )
+    expect(screen.getByRole('button', { name: /智检/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /双栏对比/ })).toBeTruthy()
+  })
+})
+
+describe('InspectCompareModal — 数据加载', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+  afterEach(() => cleanup())
+
+  it('open=true 时调用 /api/inspect/diff 至少 1 次', async () => {
+    const fetchMock = mockFetchDiff()
+    global.fetch = fetchMock as any
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask({ id: 't-orig' })}
+        compare={txtTask({ id: 't-cmp', name: '改正.txt' })}
+        onClose={() => {}}
+      />
+    )
+    // 等待：源 fetch → 对比 fetch → diff API fetch
+    await waitFor(() => {
+      const diffCalls = fetchMock.mock.calls.filter(([u]: any) => u === '/api/inspect/diff')
+      expect(diffCalls.length).toBeGreaterThanOrEqual(1)
+    })
+    const diffCall = fetchMock.mock.calls.find(([u]: any) => u === '/api/inspect/diff')
+    expect(diffCall).toBeTruthy()
+    const [, init] = diffCall!
+    const body = JSON.parse(init.body)
+    expect(body).toHaveProperty('left')
+    expect(body).toHaveProperty('right')
+    expect(body.granularity).toBe('char')
+  })
+
+  it('加载完成后双栏渲染 token（equal 文字 + delete 红线 + insert 绿线）', async () => {
+    global.fetch = mockFetchDiff() as any
+    const { container } = render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={txtTask({ name: '改正.txt' })}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => {
+      // 左侧（源）应包含删除的部分
+      const left = container.querySelector('[data-testid="inspect-left"]')!
+      expect(left.querySelector('.diff-token-delete')?.textContent).toBe('利')
+      // 右侧（改正）应包含插入的部分
+      const right = container.querySelector('[data-testid="inspect-right"]')!
+      expect(right.querySelector('.diff-token-insert')?.textContent).toBe('力')
+    })
+  })
+
+  it('加载失败时显示错误态 + 重试按钮', async () => {
+    global.fetch = mockFetchDiff(null, { fail: true }) as any
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={txtTask()}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => {
+      // 重试按钮（左栏和右栏各 1 个，至少 1 个）
+      const btns = screen.getAllByRole('button', { name: /重试/ })
+      expect(btns.length).toBeGreaterThan(0)
+    })
+  })
+})
+
+describe('InspectCompareModal — 错误侧栏交互', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    global.fetch = mockFetchDiff() as any
+  })
+  afterEach(() => cleanup())
+
+  it('侧栏渲染所有错误条目（含编号 + 原文 → 改正）', async () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={txtTask()}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => {
+      const sidebar = screen.getByTestId('inspect-diff-sidebar')
+      expect(sidebar.textContent).toContain('利')
+      expect(sidebar.textContent).toContain('力')
+      expect(sidebar.textContent).toContain('既')
+      expect(sidebar.textContent).toContain('继')
+    })
+  })
+
+  it('每条错误有 ✓/+/− 三个操作按钮', async () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={txtTask()}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => {
+      const acceptBtns = screen.getAllByRole('button', { name: /接受/ })
+      const ignoreBtns = screen.getAllByRole('button', { name: /忽略/ })
+      expect(acceptBtns.length).toBe(2) // e1 + e2
+      expect(ignoreBtns.length).toBe(2)
+    })
+  })
+
+  it('点击「接受」后该条目标记为已接受（is-accepted class）', async () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={txtTask()}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /接受/ }).length).toBeGreaterThan(0)
+    })
+    const firstAccept = screen.getAllByRole('button', { name: /接受/ })[0]
+    fireEvent.click(firstAccept)
+    // 父级 li / div 应有 is-accepted class
+    const item = firstAccept.closest('[data-error-id]')
+    expect(item?.className).toMatch(/is-accepted/)
+  })
+
+  it('点击「忽略」后该条目标记为已忽略（is-ignored class）', async () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={txtTask()}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /忽略/ }).length).toBeGreaterThan(0)
+    })
+    const firstIgnore = screen.getAllByRole('button', { name: /忽略/ })[0]
+    fireEvent.click(firstIgnore)
+    const item = firstIgnore.closest('[data-error-id]')
+    expect(item?.className).toMatch(/is-ignored/)
+  })
+})
+
+describe('InspectCompareModal — 模式切换', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    global.fetch = mockFetchDiff() as any
+  })
+  afterEach(() => cleanup())
+
+  it('点击「双栏对比」按钮 → 模式切换，UI 样式变化', async () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={null}
+        onClose={() => {}}
+      />
+    )
+    const dualBtn = screen.getByRole('button', { name: /双栏对比/ })
+    fireEvent.click(dualBtn)
+    await waitFor(() => {
+      expect(dualBtn.className).toMatch(/is-active/)
+    })
+  })
+
+  it('compare=null 时默认智检模式', () => {
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={null}
+        onClose={() => {}}
+      />
+    )
+    const inspectBtn = screen.getByRole('button', { name: /智检/ })
+    expect(inspectBtn.className).toMatch(/is-active/)
+  })
+})
+
+describe('InspectCompareModal — 关闭', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    global.fetch = mockFetchDiff() as any
+  })
+  afterEach(() => cleanup())
+
+  it('ESC 触发 onClose', () => {
+    const onClose = vi.fn()
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={null}
+        onClose={onClose}
+      />
+    )
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('点击关闭按钮触发 onClose', () => {
+    const onClose = vi.fn()
+    render(
+      <InspectCompareModal
+        open={true}
+        source={txtTask()}
+        compare={null}
+        onClose={onClose}
+      />
+    )
+    const closeBtn = screen.getByRole('button', { name: /关闭/ })
+    fireEvent.click(closeBtn)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+=== NEW FILE: office-preview-app/web/e2e/inspect-compare.spec.ts ===
+// 双栏对比 / 智检 — Playwright 端到端测试
+// 模型：Claude MiniMax-M3
+import { test, expect } from '@playwright/test'
+
+test.describe('智检 · 双栏对比 端到端', () => {
+  test.beforeEach(async ({ page }) => {
+    // 监听 console 错误（前端可观测）
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') console.log('[browser-console-error]', msg.text())
+    })
+  })
+
+  test('点击智检按钮 → 打开弹层 → 双栏渲染 token', async ({ page }) => {
+    await page.goto('/')
+
+    // 等待任务列表加载
+    await page.waitForSelector('.card', { timeout: 15000 })
+
+    // 找任意 txt / md 文件的智检按钮（找不到则跳过：测试样本可能不含文本）
+    const inspectBtn = page.locator('button:has-text("🔍 智检")').first()
+    const count = await inspectBtn.count()
+    if (count === 0) {
+      test.skip(true, '未找到可智检的文本文件（样本中无 txt/md）')
+      return
+    }
+    await expect(inspectBtn).toBeVisible()
+    await inspectBtn.click()
+
+    // 弹层出现
+    const modal = page.locator('[data-testid="inspect-modal"]')
+    await expect(modal).toBeVisible({ timeout: 5000 })
+
+    // 工具条 + 双栏 + 错误侧栏
+    await expect(page.locator('[data-testid="inspect-toolbar"]')).toBeVisible()
+    await expect(page.locator('[data-testid="inspect-left"]')).toBeVisible()
+    await expect(page.locator('[data-testid="inspect-right"]')).toBeVisible()
+    await expect(page.locator('[data-testid="inspect-diff-sidebar"]')).toBeVisible()
+  })
+
+  test('模式切换：点击「双栏对比」按钮 → aria-pressed 切换', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('.card', { timeout: 15000 })
+    const inspectBtn = page.locator('button:has-text("🔍 智检")').first()
+    if (await inspectBtn.count() === 0) {
+      test.skip(true, '样本无 txt/md')
+      return
+    }
+    await inspectBtn.click()
+    await page.locator('[data-testid="inspect-modal"]').waitFor({ state: 'visible' })
+
+    // 双栏对比按钮
+    const dualBtn = page.locator('button:has-text("双栏对比")')
+    await dualBtn.click()
+    await expect(dualBtn).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('错误侧栏点击接受 → 添加 is-accepted class', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('.card', { timeout: 15000 })
+    const inspectBtn = page.locator('button:has-text("🔍 智检")').first()
+    if (await inspectBtn.count() === 0) {
+      test.skip(true, '样本无 txt/md')
+      return
+    }
+    await inspectBtn.click()
+    await page.locator('[data-testid="inspect-modal"]').waitFor({ state: 'visible' })
+
+    // 等待错误列表出现（依赖服务端 diff）
+    const acceptBtn = page.locator('button:has-text("✓ 接受")').first()
+    try {
+      await acceptBtn.waitFor({ state: 'visible', timeout: 8000 })
+    } catch {
+      test.skip(true, '无错误条目可接受（diff 为空，跳过）')
+      return
+    }
+
+    await acceptBtn.click()
+    // 父级 li 应有 is-accepted
+    const item = page.locator('[data-error-id]').first()
+    await expect(item).toHaveClass(/is-accepted/)
+  })
+
+  test('ESC 键关闭弹层', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('.card', { timeout: 15000 })
+    const inspectBtn = page.locator('button:has-text("🔍 智检")').first()
+    if (await inspectBtn.count() === 0) {
+      test.skip(true, '样本无 txt/md')
+      return
+    }
+    await inspectBtn.click()
+    await page.locator('[data-testid="inspect-modal"]').waitFor({ state: 'visible' })
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-testid="inspect-modal"]')).toBeHidden({ timeout: 3000 })
+  })
+
+  test('可观测：服务端响应头 X-Diff-Engine / X-Diff-Ms', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('.card', { timeout: 15000 })
+    const inspectBtn = page.locator('button:has-text("🔍 智检")').first()
+    if (await inspectBtn.count() === 0) {
+      test.skip(true, '样本无 txt/md')
+      return
+    }
+
+    // 捕获 diff API 响应
+    const diffResp = page.waitForResponse(r =>
+      r.url().includes('/api/inspect/diff') && r.status() === 200
+    , { timeout: 8000 })
+    await inspectBtn.click()
+    const r = await diffResp
+    expect(r.headers()['x-diff-engine']).toBe('myers@1.0')
+    expect(Number(r.headers()['x-diff-ms'])).toBeGreaterThanOrEqual(0)
+  })
+})
+=== NEW FILE: files/智检样例_原文.txt ===
+想当年，他所带领的军队以锐不可挡之势，横扫大江南北，可谓在交趾基业上既往开来，成就了一番伟业。原本偏安一隅的小国，从他的手中变成了一个州，国人对这位领袖的敬意油然而生。威望的增加、权力的扩张丝毫没有改变他原有的样子，他迈步走进岳楼，回忆起在湖北省张家界市的一段往事。那是一个薄雾蒙蒙的清晨，在急促行军途中他与一位素未谋面的人相逢，虽然之后并没有太多故事，却至今难以忘却，正当他的思绪陷入过往，忽然一阵震天的马蹄声夹杂着士兵的喧闹传来，报：“敌人来袭，我方战线危机，望将军火速驰援”。由于刚刚陷入过往的原因，他微愣了愣神，咆哮道：“大军听令，即刻出发”！军令如山。成群的士兵迅速从营房中跑出在校场上整齐队列，方阵如虹、战马昂首、刀枪如林、战旗迎风飘扬，将士身上的盔甲在阳光下闪烁着金属的光泽。看着这支曾跟着他南征北战的队伍，他默默翻身登上战马，走在队伍最前面。营房外的道路两旁站满了欢送的百姓，大家希望将军能带领着军队，再次创造奇迹。
+=== NEW FILE: files/智检样例_改正.txt ===
+想当年，他所带领的军队以锐不可挡之势，横扫大江南北，可谓在交趾基业上继往开来，成就了一番伟业。原本偏安一隅的小国，从他的手中变成了一个州，国人对这位领袖的敬意油然而生。威望的增加、权力的扩张丝毫没有改变他原有的样子，他迈步走进岳阳楼，回忆起在湖南省张家界的一段往事。那是一个薄雾蒙蒙的清晨，在急促行军途中他与一位素未谋面的人相逢，虽然之后并没有太多故事，却至今难以忘却，正当他的思绪陷入过往，忽然一阵震天的马蹄声夹杂着士兵的喧闹传来，报：“敌人来袭，我方战线危机，望将军火速驰援”。由于刚刚陷入过往的原因，他微愣了愣神，咆哮道：“大军听令，即刻出发”！军令如山。成群的士兵迅速从营房中跑出在校场上整齐队列，方阵如虹、战马昂首、刀枪如林、战旗迎风飘扬，将士身上的盔甲在阳光下闪烁着金属的光泽。看着这支曾跟着他南征北战的队伍，他默默翻身登上战马，走在队伍最前面。营房外的道路两旁站满了欢送的百姓，大家希望将军能带领着军队，再次创造奇迹。

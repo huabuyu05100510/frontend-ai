@@ -1,0 +1,14 @@
+ office-preview-app/server/package-lock.json        |   7 +
+ office-preview-app/server/package.json             |  11 +-
+ office-preview-app/server/src/config.mjs           |  26 +-
+ office-preview-app/server/src/pdf-rasterize.mjs    | 157 ++++++----
+ office-preview-app/server/src/pdfium-render.mjs    | 319 +++++++++++++++++++++
+ .../server/src/pdfium-text-layer.mjs               |  96 +++++++
+ office-preview-app/server/src/router.mjs           | 130 ++++++++-
+ .../server/test/pdf-rasterize.test.mjs             | 296 +++++--------------
+ .../server/test/pdfium-render.test.mjs             | 309 ++++++++++++++++++++
+ office-preview-app/server/test/router.test.mjs     |  32 +++
+ office-preview-app/web/src/perf.ts                 |  20 +-
+ .../web/src/previewers/PdfImagesPreview.tsx        | 102 ++-----
+ .../web/test/PdfImagesPreview.test.tsx             | 161 +++++++----
+ 13 files changed, 1262 insertions(+), 404 deletions(-)

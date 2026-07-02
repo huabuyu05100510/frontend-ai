@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.local
+*.local
+
+# node
+node_modules/
+extension/node_modules/
+extension/dist/
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
+
+# test artifacts
+test/shots/*.diff.png
+extension/test/shots/*.diff.png

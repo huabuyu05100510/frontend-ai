@@ -1,0 +1,214 @@
+{
+  "queries": [
+    {
+      "type": "text",
+      "query": "a dog",
+      "results": [
+        {
+          "id": "img-001",
+          "score": 0.2723,
+          "label": "a dog"
+        },
+        {
+          "id": "img-002",
+          "score": 0.2262,
+          "label": "a cat"
+        },
+        {
+          "id": "img-007",
+          "score": 0.2254,
+          "label": "a person"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "query": "a cat",
+      "results": [
+        {
+          "id": "img-002",
+          "score": 0.2756,
+          "label": "a cat"
+        },
+        {
+          "id": "img-007",
+          "score": 0.2156,
+          "label": "a person"
+        },
+        {
+          "id": "img-001",
+          "score": 0.2095,
+          "label": "a dog"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "query": "a car",
+      "results": [
+        {
+          "id": "img-003",
+          "score": 0.2499,
+          "label": "a car"
+        },
+        {
+          "id": "img-007",
+          "score": 0.2186,
+          "label": "a person"
+        },
+        {
+          "id": "img-002",
+          "score": 0.2091,
+          "label": "a cat"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "query": "outdoor scenery",
+      "results": [
+        {
+          "id": "img-006",
+          "score": 0.2553,
+          "label": "outdoor scenery"
+        },
+        {
+          "id": "img-007",
+          "score": 0.2333,
+          "label": "a person"
+        },
+        {
+          "id": "img-004",
+          "score": 0.2308,
+          "label": "a building"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "query": "a building",
+      "results": [
+        {
+          "id": "img-004",
+          "score": 0.2473,
+          "label": "a building"
+        },
+        {
+          "id": "img-006",
+          "score": 0.2047,
+          "label": "outdoor scenery"
+        },
+        {
+          "id": "img-007",
+          "score": 0.1882,
+          "label": "a person"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "query": "food",
+      "results": [
+        {
+          "id": "img-005",
+          "score": 0.2456,
+          "label": "food"
+        },
+        {
+          "id": "img-001",
+          "score": 0.2073,
+          "label": "a dog"
+        },
+        {
+          "id": "img-007",
+          "score": 0.2044,
+          "label": "a person"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "query": "a person",
+      "results": [
+        {
+          "id": "img-007",
+          "score": 0.2464,
+          "label": "a person"
+        },
+        {
+          "id": "img-002",
+          "score": 0.2323,
+          "label": "a cat"
+        },
+        {
+          "id": "img-001",
+          "score": 0.2297,
+          "label": "a dog"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "query": "indoor room",
+      "results": [
+        {
+          "id": "img-008",
+          "score": 0.2537,
+          "label": "indoor room"
+        },
+        {
+          "id": "img-002",
+          "score": 0.1999,
+          "label": "a cat"
+        },
+        {
+          "id": "img-003",
+          "score": 0.1922,
+          "label": "a car"
+        }
+      ]
+    },
+    {
+      "type": "image",
+      "query": "./images/dog.jpg",
+      "results": [
+        {
+          "id": "img-001",
+          "score": 1,
+          "label": "a dog"
+        },
+        {
+          "id": "img-002",
+          "score": 0.7567,
+          "label": "a cat"
+        },
+        {
+          "id": "img-006",
+          "score": 0.6237,
+          "label": "outdoor scenery"
+        }
+      ]
+    },
+    {
+      "type": "image",
+      "query": "./images/cat.jpg",
+      "results": [
+        {
+          "id": "img-002",
+          "score": 1,
+          "label": "a cat"
+        },
+        {
+          "id": "img-001",
+          "score": 0.7567,
+          "label": "a dog"
+        },
+        {
+          "id": "img-008",
+          "score": 0.642,
+          "label": "indoor room"
+        }
+      ]
+    }
+  ]
+}

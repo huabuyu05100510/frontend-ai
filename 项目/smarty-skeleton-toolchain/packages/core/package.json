@@ -1,0 +1,22 @@
+{
+  "name": "@smarty-skeleton-toolchain/core",
+  "version": "1.0.11",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "scripts": {
+    "build": "rollup -c",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@rollup/plugin-commonjs": "^24.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "rollup": "^3.0.0",
+    "typescript": "^5.2.2"
+  },
+  "devDependencies": {
+    "rollup-plugin-dts": "^4.2.3"
+  }
+}

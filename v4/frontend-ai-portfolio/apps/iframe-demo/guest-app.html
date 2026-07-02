@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbit Guest — AI Model Simulator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      /* 流式布局: 不设固定高度, 由内容自然撑开 */
+      padding: 20px;
+    }
+
+    .app-header {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    .status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #00ff88;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+    .app-header h2 { font-size: 18px; }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .metric-card {
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .metric-card .label { font-size: 11px; color: #777; margin-bottom: 6px; }
+    .metric-card .value { font-size: 16px; font-weight: 600; }
+    .metric-card .value.green { color: #00ff88; }
+    .metric-card .value.blue { color: #667eea; }
+
+    .section {
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .section h3 { font-size: 14px; margin-bottom: 10px; color: #e94560; }
+
+    /* 动态内容区 — 流式, 高度由内容决定 */
+    .dynamic-content {
+      /* 无固定高度! 由内部内容自然撑开 */
+    }
+
+    .dynamic-item {
+      background: #0f3460;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin: 6px 0;
+      font-size: 13px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .dynamic-item .index {
+      color: #667eea;
+      font-family: monospace;
+      font-size: 11px;
+      min-width: 28px;
+    }
+
+    /* 模拟数据表格 */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .data-table th {
+      text-align: left;
+      padding: 8px 12px;
+      background: #0f3460;
+      color: #888;
+      font-weight: 500;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .data-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #1e1e3f;
+    }
+
+    .data-table .metric { color: #00ff88; font-family: monospace; }
+
+    .btn-row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin-top: 12px;
+    }
+
+    .btn {
+      padding: 8px 14px;
+      border: 1px solid #e94560;
+      background: transparent;
+      color: #e94560;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+
+    .btn:hover { background: #e9456020; }
+
+    .log-area {
+      font-size: 12px;
+      font-family: monospace;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .log-area .line {
+      padding: 3px 8px;
+      border-radius: 3px;
+      margin: 1px 0;
+    }
+
+    .log-area .line:nth-child(odd) { background: #0a0a2010; }
+    .log-area .line .ts { color: #555; }
+    .log-area .line .evt { color: #e94560; }
+  </style>
+</head>
+<body>
+
+  <div class="app-header">
+    <div class="status-dot" id="status-dot"></div>
+    <div>
+      <h2>🤖 AI Model Demo</h2>
+      <small style="color:#777;">Streamlit / Gradio Simulator · Bridge SDK active</small>
+    </div>
+  </div>
+
+  <!-- Metrics Grid -->
+  <div class="metric-grid">
+    <div class="metric-card">
+      <div class="label">Model</div>
+      <div class="value blue">GPT-4o Vision</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Status</div>
+      <div class="value green" id="model-status">Inference Ready</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Latency</div>
+      <div class="value green">~230ms</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Content Items</div>
+      <div class="value blue" id="item-count">5</div>
+    </div>
+  </div>
+
+  <!-- Dynamic Content — 流式, 由内容决定高度 -->
+  <div class="section">
+    <h3>📋 Inference Results <small style="color:#777;font-weight:400;">(dynamic, flow layout)</small></h3>
+    <div class="dynamic-content" id="dynamic-content">
+      <div class="dynamic-item"><span class="index">#01</span> Detected objects: 12 (car=4, person=3, bicycle=2, dog=3)</div>
+      <div class="dynamic-item"><span class="index">#02</span> Scene classification: urban_street (confidence: 0.97)</div>
+      <div class="dynamic-item"><span class="index">#03</span> OCR extracted: 3 text regions, lang=zh-CN+en</div>
+      <div class="dynamic-item"><span class="index">#04</span> Depth estimation: min=0.5m, max=45.2m, avg=12.3m</div>
+      <div class="dynamic-item"><span class="index">#05</span> Semantic segmentation: 8 classes, IoU=0.89</div>
+    </div>
+  </div>
+
+  <!-- Data Table — 流式内容 -->
+  <div class="section">
+    <h3>📊 Performance Breakdown</h3>
+    <table class="data-table">
+      <thead><tr><th>Layer</th><th>Time (ms)</th><th>Memory (MB)</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Backbone (ResNet-50)</td><td class="metric">45.2</td><td>128</td><td style="color:#00ff88;">✓</td></tr>
+        <tr><td>Neck (FPN)</td><td class="metric">12.8</td><td>64</td><td style="color:#00ff88;">✓</td></tr>
+        <tr><td>Head (Detection)</td><td class="metric">89.3</td><td>256</td><td style="color:#00ff88;">✓</td></tr>
+        <tr><td>Post-process (NMS)</td><td class="metric">8.1</td><td>32</td><td style="color:#00ff88;">✓</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Controls -->
+  <div class="section">
+    <h3>🎮 Bridge Controls</h3>
+    <div class="btn-row">
+      <button class="btn" onclick="sendReady()">📡 Send app.ready</button>
+      <button class="btn" onclick="addContent(3)">＋ Add 3 Items</button>
+      <button class="btn" onclick="addContent(8)">＋ Add 8 Items</button>
+      <button class="btn" onclick="removeContent()">− Remove Items</button>
+      <button class="btn" onclick="simulateCrash()">💥 Crash</button>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="section">
+    <h3>📡 Bridge Log</h3>
+    <div class="log-area" id="bridge-log">
+      <div class="line"><span class="ts">--:--:--</span> Waiting for Host...</div>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // Guest Bridge SDK (Embedded)
+    // ============================================================
+    const BRIDGE_VERSION = '2.0';
+    const pendingRequests = new Map();
+    const handlers = new Map();
+    let contentCounter = 5;
+
+    function generateId() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+    }
+
+    function post(msg) {
+      window.parent.postMessage(msg, '*');
+    }
+
+    function addLog(event, detail = '') {
+      const container = document.getElementById('bridge-log');
+      const time = new Date().toLocaleTimeString();
+      const line = document.createElement('div');
+      line.className = 'line';
+      line.innerHTML = `<span class="ts">${time}</span> <span class="evt">${event}</span> ${detail}`;
+      container.insertBefore(line, container.firstChild);
+      if (container.children.length > 20) container.lastChild.remove();
+    }
+
+    // ---- Message Handler ----
+    window.addEventListener('message', async (event) => {
+      const msg = event.data;
+      if (!msg || msg.jsonrpc !== '2.0') return;
+
+      // Response
+      if (msg.id && (msg.result !== undefined || msg.error)) {
+        const pending = pendingRequests.get(msg.id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          pendingRequests.delete(msg.id);
+          msg.error ? pending.reject(new Error(msg.error.message)) : pending.resolve(msg.result);
+        }
+        return;
+      }
+
+      // Request
+      if (msg.id && msg.method) {
+        addLog('← REQ', msg.method);
+        const handler = handlers.get(msg.method);
+        if (handler) {
+          try {
+            const result = await handler(msg.params);
+            post({ jsonrpc: '2.0', id: msg.id, result: result ?? null });
+          } catch (err) {
+            post({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: err.message } });
+          }
+        } else {
+          post({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } });
+        }
+        return;
+      }
+
+      // Notification
+      if (msg.method && !msg.id) {
+        addLog('← NOTIFY', msg.method);
+        const handler = handlers.get(msg.method);
+        if (handler) handler(msg.params).catch(() => {});
+      }
+    });
+
+    // ---- Report height changes to Host (流式布局核心) ----
+    function reportHeight() {
+      const h = document.body.scrollHeight;
+      post({ jsonrpc: '2.0', method: 'layout.contentHeight', params: { height: h } });
+    }
+
+    // Watch for size changes
+    const resizeObserver = new ResizeObserver(() => {
+      reportHeight();
+    });
+    resizeObserver.observe(document.body);
+
+    // Initial report after layout
+    setTimeout(reportHeight, 100);
+
+    // ---- Handlers ----
+    handlers.set('app.health', async () => {
+      return { status: 'ok', uptime: Math.round(performance.now() / 1000) };
+    });
+
+    handlers.set('app.getState', async () => {
+      return { state: 'active', uptime: performance.now(), contentItems: contentCounter };
+    });
+
+    handlers.set('bridge.handshake', async (params) => {
+      addLog('→ HANDSHAKE', `v${params.version}`);
+      return { version: BRIDGE_VERSION, capabilities: ['app.health', 'app.ready', 'app.getState'] };
+    });
+
+    handlers.set('layout.resize', async (params) => {
+      addLog('↔ RESIZE', `w=${params?.width} h=${params?.height}`);
+      reportHeight();
+    });
+
+    // Notification handlers
+    handlers.set('trigger.ready', async () => {
+      sendReady();
+    });
+
+    handlers.set('add.content', async (params) => {
+      const lines = params?.lines || 3;
+      addContent(lines);
+    });
+
+    handlers.set('simulate.crash', async () => {
+      simulateCrash();
+    });
+
+    // ---- Public Functions ----
+    function sendReady() {
+      post({ jsonrpc: '2.0', method: 'app.ready' });
+      addLog('→ NOTIFY', 'app.ready');
+      document.getElementById('model-status').textContent = 'Ready ✓';
+    }
+
+    const sampleItems = [
+      'Object detection: found 3 new objects (car, truck, pedestrian)',
+      'Scene understanding: indoor_office (confidence: 0.94)',
+      'OCR result: "Meeting at 3pm - Room 204" (en)',
+      'Emotion recognition: neutral (0.82), happiness (0.11)',
+      'Depth map updated: range 0.3m ~ 28.7m',
+      'Instance segmentation: 5 instances, mask AP=0.91',
+      'Language model: generated 128 tokens in 340ms',
+      'Embedding dimension: 768, cosine similarity: 0.87',
+      'Attention heatmap: focus region (240, 180) ~ (680, 420)',
+      'Anomaly score: 0.03 (threshold: 0.15) → normal',
+      'Feature vector extracted: dim=2048, l2_norm=1.0',
+      'Knowledge graph: 42 nodes, 87 edges updated',
+      'Multimodal fusion: image+text, cross-attention score 0.76',
+      'Few-shot classifier: 5-way, 1-shot, accuracy=0.82',
+      'Quantization: INT8 calibration done, latency -40%',
+    ];
+
+    function addContent(n) {
+      const container = document.getElementById('dynamic-content');
+      for (let i = 0; i < n; i++) {
+        contentCounter++;
+        const item = document.createElement('div');
+        item.className = 'dynamic-item';
+        const idx = String(contentCounter).padStart(2, '0');
+        const text = sampleItems[(contentCounter - 1) % sampleItems.length];
+        item.innerHTML = `<span class="index">#${idx}</span> ${text}`;
+        container.appendChild(item);
+      }
+      document.getElementById('item-count').textContent = contentCounter;
+      addLog('＋ CONTENT', `+${n} items → total=${contentCounter}`);
+
+      // 流式关键: 内容变化后通知 Host 高度变化
+      setTimeout(reportHeight, 50);
+    }
+
+    function removeContent() {
+      const container = document.getElementById('dynamic-content');
+      const items = container.querySelectorAll('.dynamic-item');
+      if (items.length <= 2) return;
+      for (let i = 0; i < 3 && items.length > 2; i++) {
+        items[items.length - 1].remove();
+        contentCounter--;
+      }
+      document.getElementById('item-count').textContent = contentCounter;
+      addLog('− CONTENT', `-3 items → total=${contentCounter}`);
+      setTimeout(reportHeight, 50);
+    }
+
+    function simulateCrash() {
+      document.getElementById('status-dot').style.background = '#ff0000';
+      document.getElementById('model-status').textContent = '💀 CRASHED';
+      handlers.delete('app.health');
+      addLog('💥 CRASH', 'app.health handler REMOVED');
+    }
+
+    // Auto-send ready after load
+    setTimeout(() => {
+      sendReady();
+      addLog('🔄 AUTO', 'Simulated WS connected, DOM hydrated');
+    }, 1200);
+
+    // Periodic height report
+    setInterval(reportHeight, 3000);
+
+    console.log('[Orbit Guest] Bridge SDK v' + BRIDGE_VERSION + ' initialized');
+  </script>
+</body>
+</html>

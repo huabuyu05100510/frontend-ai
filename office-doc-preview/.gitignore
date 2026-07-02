@@ -1,0 +1,15 @@
+# 依赖（体积大，可重装）
+node_modules/
+**/node_modules/
+
+# 运行数据：上传的原文件、转码/栅格化产物、任务元数据（含用户隐私，勿入库）
+office-preview-app/.data/
+
+# Claude 工作目录（worktrees 嵌套 git + 计划文件）
+.claude/worktrees/
+.claude/plans/
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+*.log

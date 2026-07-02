@@ -1,0 +1,62 @@
+/* 模型：claude-sonnet-4-6 */
+/* AUTO-GENERATED from semantic.ts — semantic alias layer */
+/* Light mode defaults; dark.css overrides under [data-theme="dark"] */
+
+:root {
+  /* Brand */
+  --color-primary: var(--blue-7);
+  --color-primary-hover: var(--blue-6);
+  --color-primary-active: var(--blue-8);
+  --color-primary-bg: var(--blue-2);
+  --color-primary-bg-hover: var(--blue-3);
+  /* AI */
+  --color-ai: var(--purple-7);
+  --color-ai-hover: var(--purple-5);
+  --color-ai-bg: var(--purple-3);
+  /* Accent */
+  --color-accent: var(--indigo-7);
+  --color-accent-bg: var(--indigo-1);
+  --color-accent-border: var(--indigo-3);
+  /* Text */
+  --color-text: var(--slate-12);
+  --color-text-secondary: var(--slate-11);
+  --color-text-tertiary: var(--slate-9);
+  --color-text-placeholder: var(--slate-8);
+  --color-text-inverse: #ffffff;
+  --color-text-link: var(--color-primary);
+  /* Background */
+  --color-bg: #ffffff;
+  --color-bg-canvas: var(--slate-3);
+  --color-bg-subtle: var(--slate-2);
+  --color-bg-hover: var(--slate-4);
+  --color-bg-mask: rgba(15, 23, 42, 0.55);
+  /* Border */
+  --color-border: var(--slate-6);
+  --color-border-strong: var(--slate-7);
+  --color-border-light: var(--slate-4);
+  /* Status */
+  --color-success: var(--green-6);
+  --color-success-bg: var(--green-2);
+  --color-warning: var(--amber-6);
+  --color-warning-bg: var(--amber-2);
+  --color-danger: var(--red-5);
+  --color-danger-bg: var(--red-1);
+  --color-info: var(--color-primary);
+  --color-info-bg: var(--color-primary-bg);
+  /* Diff */
+  --color-diff-delete: var(--red-3);
+  --color-diff-insert: var(--blue-3);
+  --color-diff-active: var(--indigo-6);
+  /* ============ Translation UX Overhaul (Phase A.1 Agent 1) ============ */
+  --color-translate-stage-active: var(--blue-7);
+  --color-translate-stage-done: var(--green-5);
+  --color-translate-stage-pending: var(--slate-3);
+  --color-annotation-kind-align: var(--blue-6);
+  --color-annotation-kind-seg: var(--green-6);
+  --color-annotation-kind-alt: var(--purple-6);
+  --color-toast-success: var(--green-6);
+  --color-toast-error: var(--red-6);
+  --color-toast-info: var(--blue-6);
+  --color-toast-warning: var(--amber-6);
+  --color-toast-bg: var(--color-bg);
+}

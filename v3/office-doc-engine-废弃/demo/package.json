@@ -1,0 +1,38 @@
+{
+  "name": "office-doc-engine-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "prosemirror-commands": "^1.5.2",
+    "prosemirror-history": "^1.3.2",
+    "prosemirror-inputrules": "^1.4.0",
+    "prosemirror-keymap": "^1.2.2",
+    "prosemirror-model": "^1.22.3",
+    "prosemirror-schema-list": "^1.4.1",
+    "prosemirror-state": "^1.4.3",
+    "prosemirror-view": "^1.34.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^2.1.9",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8",
+    "vitest": "^2.1.9"
+  }
+}

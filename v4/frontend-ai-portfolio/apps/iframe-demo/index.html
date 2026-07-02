@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbit v2.1 — 流式微前端 Demo</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:#060613;color:#e0e0e0;
+    min-height:100vh;
+  }
+
+  /* ===== Header ===== */
+  .header{
+    background:#0d0d24;border-bottom:1px solid #1e1e3f;
+    display:flex;align-items:center;flex-wrap:wrap;
+    padding:12px 24px;gap:12px;
+  }
+  .header-logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+  .header-logo .icon{
+    width:28px;height:28px;background:linear-gradient(135deg,#667eea,#e94560);
+    border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;
+  }
+  .header-nav{display:flex;gap:4px;margin-left:16px}
+  .header-nav a{
+    padding:6px 12px;border-radius:6px;color:#888;text-decoration:none;
+    font-size:13px;transition:all .2s;
+  }
+  .header-nav a:hover{color:#ccc;background:#12122e}
+  .header-nav a.active{color:#fff;background:#667eea20}
+  .header-spacer{flex:1}
+
+  .model-selector{display:flex;gap:6px}
+  .model-btn{
+    padding:5px 12px;border-radius:6px;border:1px solid #2a2a4a;
+    background:transparent;color:#999;cursor:pointer;
+    font-size:12px;transition:all .2s;white-space:nowrap;
+  }
+  .model-btn:hover{border-color:#667eea;color:#ccc}
+  .model-btn.active{background:#667eea20;border-color:#667eea;color:#fff}
+
+  /* ===== App Frame ===== */
+  .app-frame{
+    margin:16px 24px;
+    border:2px solid #1e1e3f;border-radius:12px;
+    overflow:hidden;background:#0d0d24;
+    box-shadow:0 0 30px rgba(102,126,234,.05);
+  }
+
+  .frame-header{
+    background:#111130;border-bottom:1px solid #1e1e3f;
+    display:flex;align-items:center;padding:8px 16px;gap:10px;font-size:12px;
+  }
+  .frame-header .breadcrumb{color:#666;font-size:11px}
+  .frame-header .breadcrumb span{color:#aaa}
+
+  .frame-body{background:#060613}
+  .frame-body iframe{display:block;width:100%;border:none}
+
+  .frame-footer{
+    background:#111130;border-top:1px solid #1e1e3f;
+    display:flex;flex-wrap:wrap;align-items:center;padding:6px 16px;gap:14px;
+    font-size:10px;color:#555;
+  }
+  .frame-footer .item{display:flex;align-items:center;gap:4px;white-space:nowrap}
+  .frame-footer .val{color:#888;font-family:monospace}
+
+  /* Skeleton */
+  .orbit-skeleton{
+    position:absolute;top:0;left:0;width:100%;height:100%;z-index:10;
+    background:linear-gradient(90deg,#1a1a2e 25%,#22223e 50%,#1a1a2e 75%);
+    background-size:200% 100%;
+    animation:shimmer 1.5s ease-in-out infinite;
+    transition:opacity .3s ease-out;
+    display:flex;align-items:center;justify-content:center;
+    color:#444;font-size:14px;
+  }
+  @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+  .page-footer{
+    background:#0d0d24;border-top:1px solid #1e1e3f;
+    padding:12px 24px;margin-top:16px;
+    display:flex;flex-wrap:wrap;align-items:center;gap:16px;
+    font-size:11px;color:#555;
+  }
+  .page-footer .hi{color:#667eea;font-weight:500}
+  .page-footer .info{
+    padding:2px 8px;background:#00ff8810;border:1px solid #00ff8820;
+    border-radius:4px;color:#00ff88;font-family:monospace;font-size:10px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">
+    <div class="icon">🌀</div>Orbit <span style="font-size:10px;color:#555;font-weight:400">v2.1</span>
+  </div>
+  <div class="header-nav">
+    <a href="#" class="active">Demo</a>
+    <a href="list.html">Model List</a>
+  </div>
+  <div class="header-spacer"></div>
+  <div class="model-selector">
+    <button class="model-btn active" data-url="guest-app.html">AI Vision</button>
+    <button class="model-btn" data-url="guest-app.html">Dashboard</button>
+    <button class="model-btn" data-url="guest-app.html">3D Viewer</button>
+  </div>
+</div>
+
+<div class="app-frame">
+  <div class="frame-header">
+    <div class="breadcrumb">Orbit <span>/</span> <span id="breadcrumb">AI Vision</span></div>
+  </div>
+  <div class="frame-body" id="frame-body">
+    <div style="padding:60px;text-align:center;color:#333;font-size:13px">Loading...</div>
+  </div>
+  <div class="frame-footer">
+    <div class="item">Height <span class="val" id="height-display">—</span></div>
+    <div class="item" style="margin-left:auto">SDK <span class="val">Bridge v2.1</span></div>
+  </div>
+</div>
+
+<div class="page-footer">
+  <span>🌀 Orbit Micro-Frontend</span>
+  <span style="color:#444">|</span>
+  <span class="hi">JSON-RPC 2.0</span>
+  <span style="color:#444">|</span>
+  <span class="info" id="status-info">—</span>
+</div>
+
+<script>
+var currentIframe = null;
+
+function $(id){ return document.getElementById(id) }
+
+// Listen for Guest height reports via Bridge SDK postMessage
+window.addEventListener('message', function(e){
+  var d = e.data;
+  if(d && d.method === 'layout.contentHeight' && d.params && d.params.height){
+    var h = d.params.height + 20;
+    if(currentIframe){
+      currentIframe.style.height = h + 'px';
+      $('height-display').textContent = h + 'px';
+      $('status-info').textContent = 'content-driven: ' + h + 'px';
+    }
+  }
+});
+
+// Same-origin fallback: read contentDocument height
+function syncHeight(){
+  if(!currentIframe) return;
+  try{
+    var doc = currentIframe.contentDocument || currentIframe.contentWindow.document;
+    if(doc && doc.body && doc.body.scrollHeight > 200){
+      var h = doc.body.scrollHeight;
+      currentIframe.style.height = (h + 20) + 'px';
+      $('height-display').textContent = h + 'px';
+      $('status-info').textContent = 'content-driven: ' + h + 'px';
+    }
+  }catch(e){}
+}
+
+function loadModel(url, name){
+  var body = $('frame-body');
+  $('breadcrumb').textContent = name;
+  $('height-display').textContent = '...';
+
+  if(currentIframe){ currentIframe.remove(); currentIframe = null; }
+
+  body.innerHTML = '';
+  var sk = document.createElement('div');
+  sk.className = 'orbit-skeleton';
+  sk.textContent = 'Loading ' + name + '...';
+  body.appendChild(sk);
+
+  var f = document.createElement('iframe');
+  f.src = url;
+  f.style.cssText = 'display:block;width:100%;border:none';
+  f.allow = 'camera;microphone;autoplay;accelerometer';
+  f.setAttribute('allowfullscreen','');
+
+  f.onload = function(){
+    sk.style.opacity = '0';
+    sk.addEventListener('transitionend', function(){ sk.remove() }, {once:true});
+    currentIframe = f;
+    $('status-info').textContent = 'loaded, measuring...';
+    syncHeight();
+    setInterval(syncHeight, 500);
+  };
+
+  body.appendChild(f);
+}
+
+document.querySelectorAll('.model-btn').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('.model-btn').forEach(function(x){ x.classList.remove('active') });
+    b.classList.add('active');
+    loadModel(b.dataset.url, b.textContent.trim());
+  });
+});
+
+setTimeout(function(){
+  var first = document.querySelector('.model-btn.active');
+  if(first) loadModel(first.dataset.url, first.textContent.trim());
+}, 200);
+</script>
+</body>
+</html>

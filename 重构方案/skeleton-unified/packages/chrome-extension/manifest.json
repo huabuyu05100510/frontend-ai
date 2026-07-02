@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "骨架屏生成器 Skeleton DevTools",
+  "version": "1.0.0",
+  "description": "开发阶段可视化选取 DOM 根节点，即时生成骨架屏数据和代码",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "骨架屏生成器",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:7777/*",
+    "http://localhost:7779/*"
+  ]
+}

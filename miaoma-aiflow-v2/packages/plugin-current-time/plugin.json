@@ -1,0 +1,101 @@
+{
+    "id": "@miaoma/current-time",
+    "version": "1.0.0",
+    "name": "当前时间",
+    "description": "输出指定时区的当前时间、时间戳和格式化文本，适合工作流打点、通知模板和审计日志场景。",
+    "icon": "Clock3",
+    "author": {
+        "name": "妙码学院",
+        "email": "support@miaomaedu.com",
+        "url": "https://miaomaedu.com"
+    },
+    "license": "MIT",
+    "homepage": "https://miaomaedu.com/plugins/current-time",
+    "keywords": ["time", "timezone", "clock", "workflow", "remote-plugin"],
+    "permissions": [],
+    "nodes": [
+        {
+            "type": "get-current-time",
+            "name": "当前时间",
+            "description": "获取当前系统时间并输出指定时区下的多种格式结果。",
+            "icon": "Clock3",
+            "color": "#0F766E",
+            "category": "utility",
+            "configSchema": {
+                "type": "object",
+                "properties": {
+                    "timezone": {
+                        "type": "string",
+                        "title": "时区",
+                        "description": "例如 Asia/Shanghai、UTC、America/New_York",
+                        "default": "Asia/Shanghai",
+                        "x-order": 1
+                    },
+                    "locale": {
+                        "type": "string",
+                        "title": "语言环境",
+                        "description": "例如 zh-CN、en-US",
+                        "default": "zh-CN",
+                        "x-order": 2
+                    },
+                    "hour12": {
+                        "type": "boolean",
+                        "title": "12 小时制",
+                        "default": false,
+                        "x-order": 3
+                    },
+                    "includeSeconds": {
+                        "type": "boolean",
+                        "title": "包含秒",
+                        "default": true,
+                        "x-order": 4
+                    }
+                }
+            },
+            "outputs": [
+                {
+                    "name": "formatted",
+                    "type": "string",
+                    "description": "格式化后的完整时间文本"
+                },
+                {
+                    "name": "date",
+                    "type": "string",
+                    "description": "格式化后的日期文本"
+                },
+                {
+                    "name": "time",
+                    "type": "string",
+                    "description": "格式化后的时间文本"
+                },
+                {
+                    "name": "isoString",
+                    "type": "string",
+                    "description": "UTC ISO 时间字符串"
+                },
+                {
+                    "name": "timestamp",
+                    "type": "number",
+                    "description": "Unix 时间戳（毫秒）"
+                },
+                {
+                    "name": "timezone",
+                    "type": "string",
+                    "description": "实际使用的时区"
+                },
+                {
+                    "name": "locale",
+                    "type": "string",
+                    "description": "实际使用的语言环境"
+                }
+            ]
+        }
+    ],
+    "main": {
+        "executor": "dist/executor.umd.js"
+    },
+    "engines": {
+        "miaoma": ">=1.0.0",
+        "node": ">=18.0.0"
+    }
+}

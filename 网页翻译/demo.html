@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能网页翻译 — Demo</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.6 -apple-system, system-ui, sans-serif; color: #1a1a1a; background: #f5f7fa; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  h1 { margin: 0 0 16px; font-size: 22px; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  textarea, input { font: inherit; }
+  .url-input { flex: 1; min-width: 280px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+  .text-input { flex: 1; min-width: 280px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; min-height: 100px; }
+  .btn { padding: 10px 18px; border: 0; border-radius: 6px; background: #1a73e8; color: #fff; cursor: pointer; font-size: 14px; }
+  .btn:hover { background: #1557b8; }
+  .btn.secondary { background: #607d8b; }
+  .btn.secondary:hover { background: #455a64; }
+  select { padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+
+  .status { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; display: none; }
+  .status.show { display: block; }
+  .status.working { background: #fff3cd; color: #856404; }
+  .status.done { background: #d4edda; color: #155724; }
+  .status.error { background: #f8d7da; color: #721c24; }
+
+  /* ─── 双栏并排，每行一段 ─── */
+  .viewer {
+    background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    overflow: hidden;
+  }
+  .viewer-header {
+    display: grid; grid-template-columns: 1fr 1fr;
+    background: #f0f3f7; border-bottom: 1px solid #e0e4e8;
+    font-size: 12px; font-weight: 600; color: #666;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .viewer-header > div { padding: 10px 16px; }
+  .viewer-header > div:first-child { border-right: 1px solid #e0e4e8; }
+
+  .row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid #eef0f3;
+    transition: background .15s;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row.hover { background: #fff8dc; }
+  .cell {
+    padding: 12px 16px; line-height: 1.7;
+    border-right: 1px solid #eef0f3;
+    word-break: break-word;
+  }
+  .cell:last-child { border-right: 0; }
+  .cell.src { color: #555; }
+  .cell.tgt { color: #1a73e8; background: #fafcff; }
+  .row.hover .cell.tgt { background: #fff5cc; }
+
+  /* 段落里的 HTML 内容（a/em/strong 等）保持原样 */
+  .cell :where(a, em, strong, code, b, i) { all: revert; }
+  .cell a { color: #1a73e8; }
+  .cell code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+
+  .empty { color: #999; text-align: center; padding: 60px 0; }
+
+  /* ─── 顶部 tab 栏 ─── */
+  .tabs { display: flex; gap: 4px; margin: 12px 0 16px; border-bottom: 1px solid #e0e4e8; }
+  .tab {
+    padding: 10px 18px; cursor: pointer; user-select: none;
+    border: 0; background: transparent; font-size: 14px; font-weight: 500;
+    color: #666; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab:hover { color: #1a73e8; }
+  .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* ─── 标注面板 ─── */
+  .anno-summary {
+    background: #fff; padding: 14px 18px; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    margin-bottom: 12px; font-size: 14px; color: #444;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .anno-summary .stat { font-weight: 600; color: #1a73e8; }
+  .anno-summary .stat-sub { color: #777; font-weight: 400; font-size: 12px; margin-left: 4px; }
+  .anno-summary .export-btn { margin-left: auto; }
+
+  .anno-filters { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .anno-filters button {
+    padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 4px;
+    cursor: pointer; font-size: 13px; color: #555;
+  }
+  .anno-filters button:hover { border-color: #1a73e8; color: #1a73e8; }
+  .anno-filters button.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  .anno-filters .count { color: #999; margin-left: 4px; }
+  .anno-filters button.active .count { color: rgba(255,255,255,.8); }
+
+  .anno-list { display: flex; flex-direction: column; gap: 8px; }
+  .anno-card {
+    background: #fff; border-radius: 6px; padding: 12px 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    border-left: 3px solid #1a73e8;
+  }
+  .anno-card.kind-seg_rating { border-left-color: #ff9800; }
+  .anno-card.kind-align_fix { border-left-color: #9c27b0; }
+  .anno-card-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    font-size: 13px; color: #555;
+  }
+  .anno-stars { color: #ff9800; letter-spacing: 1px; }
+  .anno-kind-icon { font-size: 14px; }
+  .anno-url {
+    color: #1a73e8; text-decoration: none; font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px;
+    display: inline-block; vertical-align: bottom;
+  }
+  .anno-card-body { font-size: 13px; color: #444; line-height: 1.5; }
+  .anno-card-body .src { color: #888; }
+  .anno-card-body .arrow { color: #999; margin: 0 6px; }
+  .anno-card-body .tgt { color: #1a73e8; }
+  .anno-card-body .meta { color: #999; font-size: 12px; margin-top: 4px; }
+  .anno-card-actions { margin-top: 8px; display: flex; gap: 8px; }
+  .anno-card-actions button {
+    padding: 4px 10px; font-size: 12px; border: 1px solid #ddd; background: #fff;
+    border-radius: 3px; cursor: pointer; color: #666;
+  }
+  .anno-card-actions button:hover { color: #1a73e8; border-color: #1a73e8; }
+  .anno-card-actions button.del:hover { color: #d33; border-color: #d33; }
+  .anno-empty { color: #999; text-align: center; padding: 40px 0; font-size: 14px; }
+  .anno-detail {
+    display: none; margin-top: 10px; padding: 10px; background: #f8f9fb;
+    border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; color: #444;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .anno-detail.show { display: block; }
+
+  /* 保结构翻译面板 */
+  .html-panel { margin: 12px 0 16px; padding: 12px 14px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .html-panel summary { cursor: pointer; font-weight: 600; color: #1a73e8; }
+  .html-panel[open] summary { margin-bottom: 10px; }
+  .html-trace { margin-top: 10px; padding: 12px; background: #f8f9fb; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; color: #444; white-space: pre-wrap; word-break: break-all; }
+  .html-trace .ok { color: #137333; font-weight: 600; }
+  .html-trace .warn { color: #b06000; }
+  .html-result { margin-top: 8px; padding: 10px 12px; background: #fff; border: 1px solid #e0e4e8; border-radius: 6px; }
+  .html-result a { color: #1a73e8; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🌐 智能网页翻译</h1>
+
+  <!-- ─── Tab 栏 ─── -->
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="translate" role="tab">🌐 翻译</button>
+    <button class="tab" data-tab="annotations" role="tab">📋 我的标注</button>
+  </div>
+
+  <!-- ─── Tab: 翻译（保留原 viewer） ─── -->
+  <div class="tab-pane active" data-pane="translate" role="tabpanel">
+    <div class="toolbar">
+      <input class="url-input" id="urlInput" placeholder="输入 URL（如 https://example.com）或直接粘贴英文段落" value="https://news.ycombinator.com">
+      <select id="tgtLang">
+        <option value="中文">中文</option>
+        <option value="English">English</option>
+        <option value="日本語">日本語</option>
+      </select>
+      <button class="btn" id="loadBtn">加载并翻译</button>
+      <button class="btn secondary" id="translateTextBtn">翻译下方文本</button>
+      <button class="btn secondary" id="translateHtmlBtn">保结构翻译HTML</button>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="toolbar">
+      <textarea class="text-input" id="textInput" rows="6" placeholder="或直接输入要翻译的英文段落（每行一段）"></textarea>
+    </div>
+
+    <details class="html-panel" id="htmlPanel">
+      <summary>🔧 保结构翻译模式（实验性，保留 &lt;a&gt; / &lt;em&gt; / &lt;strong&gt; 等标签）</summary>
+      <textarea class="text-input" id="htmlInput" rows="5" placeholder='粘贴 HTML 片段，例如：<p>Visit <a href="/x">our site</a> today.</p>'></textarea>
+      <div class="html-trace" id="htmlTrace"></div>
+    </details>
+
+    <div class="viewer">
+      <div class="viewer-header">
+        <div>📄 原文</div>
+        <div>✨ 译文</div>
+      </div>
+      <div id="rows">
+        <div class="empty">加载页面或输入文本后开始翻译</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Tab: 我的标注 ─── -->
+  <div class="tab-pane" data-pane="annotations" role="tabpanel">
+    <div class="anno-summary" id="annoSummary">
+      <span>共 <span class="stat" id="annoTotal">0</span> 条标注</span>
+      <span>·</span>
+      <span>最近 24h 新增 <span class="stat" id="annoLast24h">0</span><span class="stat-sub">条</span></span>
+      <span>·</span>
+      <span>上次同步 <span class="stat" id="annoLastSync">—</span></span>
+      <button class="btn export-btn" id="exportJsonlBtn">📥 导出 JSONL</button>
+    </div>
+
+    <div class="anno-filters" id="annoFilters">
+      <button class="active" data-kind="all">全部 <span class="count" id="cntAll">0</span></button>
+      <button data-kind="align_fix">✏️ 词级修正 <span class="count" id="cntAlign">0</span></button>
+      <button data-kind="seg_rating">⭐ 段级评分 <span class="count" id="cntRating">0</span></button>
+    </div>
+
+    <div class="anno-list" id="annoList">
+      <div class="anno-empty">暂无标注</div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { translateAligned } from '/lib/aligned-translator.mjs'
+import { encodeSegment } from '/lib/segment-encoder.mjs'
+import { extractPlaceholderIds } from '/lib/placeholder.mjs'
+import { sanitizeHtmlString } from '/lib/sanitize-html.mjs'
+import * as store from '/lib/annotation-store.mjs'
+import { AnnotationKind } from '/lib/annotation.mjs'
+
+const $ = id => document.getElementById(id)
+
+function setStatus(kind, text) {
+  const s = $('status')
+  s.className = `status show ${kind}`
+  s.textContent = text
+}
+
+function clearStatus() {
+  $('status').className = 'status'
+}
+
+function renderRows(segments, translations = []) {
+  if (!segments || segments.length === 0) {
+    $('rows').innerHTML = '<div class="empty">无可翻译内容</div>'
+    return
+  }
+  $('rows').innerHTML = segments.map((s, i) => {
+    const t = translations[i]
+    return `<div class="row" data-idx="${i}">
+      <div class="cell src">${escapeHtml(s)}</div>
+      <div class="cell tgt">${t ? escapeHtml(t) : '<span style="color:#999">—</span>'}</div>
+    </div>`
+  }).join('')
+}
+
+function clearRows() {
+  $('rows').innerHTML = '<div class="empty">加载页面或输入文本后开始翻译</div>'
+}
+
+function setAlignedPanels(srcHtml, tgtHtml) {
+  // 保结构翻译模式：把结果填进双栏的"单行"视图
+  $('rows').innerHTML = `<div class="row">
+    <div class="cell src" style="white-space:pre-wrap">${escapeHtml(srcHtml)}</div>
+    <div class="cell tgt">${tgtHtml}</div>
+  </div>`
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+}
+
+// 提取段落（与扩展 content script 相同逻辑）
+function extractSegments(doc) {
+  const BLOCK = new Set(['P','H1','H2','H3','H4','H5','H6','LI','TD','TH','BLOCKQUOTE','FIGCAPTION','DT','DD','SECTION','ARTICLE','DIV'])
+  const LEAF_BLOCK = new Set(['P','H1','H2','H3','H4','H5','H6','LI','BLOCKQUOTE','FIGCAPTION','DT','DD'])
+  const SKIP = new Set(['SCRIPT','STYLE','NOSCRIPT','IFRAME','CODE','PRE','KBD','SAMP','VAR','INPUT','TEXTAREA','SELECT','BUTTON','SVG','MATH','CANVAS'])
+  const out = []
+  function walk(el) {
+    if (SKIP.has(el.tagName)) return
+    if (el.closest && el.closest('script,style,noscript,code,pre,textarea,input,select,svg,math')) return
+    if (BLOCK.has(el.tagName)) {
+      // 检查子树里是否还有 BLOCK：若有，说明是容器（如 HN 的 td 套了 div/span 套子段）
+      // 这时继续向下递归拆分，而不是把整段塞进 out
+      const hasInnerBlock = Array.from(el.children).some(c => c.querySelector && c.querySelector(BLOCK_SELECTOR))
+      const isLeaf = LEAF_BLOCK.has(el.tagName)
+      if (!hasInnerBlock || isLeaf) {
+        const text = cleanText(el)
+        if (text.length >= 4 && !/^[\d\s\W]+$/.test(text)) out.push(text)
+        return
+      }
+    }
+    for (const c of el.children) walk(c)
+  }
+  const BLOCK_SELECTOR = Array.from(BLOCK).join(',')
+  function cleanText(el) {
+    let t = ''
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3) t += n.textContent
+      else if (n.nodeType === 1 && !SKIP.has(n.tagName)) t += cleanText(n)
+    }
+    return t.replace(/\s+/g, ' ').trim()
+  }
+  walk(doc.body || doc.documentElement)
+  return out
+}
+
+async function callTranslateApi(segments, tgtLang) {
+  const r = await fetch('/api/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ segments, tgtLang }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.detail || err.error || `HTTP ${r.status}`)
+  }
+  return (await r.json()).translations
+}
+
+$('loadBtn').addEventListener('click', async () => {
+  const url = $('urlInput').value.trim()
+  if (!url) return
+  setStatus('working', `⏳ 通过服务端代理抓取 ${url} ...`)
+  clearRows()
+  try {
+    const r = await fetch('/api/fetch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    const data = await r.json()
+    if (!r.ok) throw new Error(data.error || `抓取失败 (${data.code || r.status})`)
+    setStatus('working', `✅ 抓到 ${(data.html || '').length} 字符，正在解析 + 翻译...`)
+    await translateHTML(data.html)
+  } catch (e) {
+    setStatus('error', `❌ ${e.message}`)
+  }
+})
+
+async function translateHTML(html) {
+  setStatus('working', '⏳ 解析段落...')
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+  const segments = extractSegments(doc)
+  if (segments.length === 0) {
+    renderRows([])
+    setStatus('error', '❌ 未提取到段落')
+    return
+  }
+  // 先渲染原文段，让用户立即看到结果
+  renderRows(segments)
+  const total = segments.length
+  setStatus('working', `⏳ 翻译 ${total} 段（DeepL 后端，每批 50 段）...`)
+  try {
+    const translations = await callTranslateApi(segments, $('tgtLang').value)
+    renderRows(segments, translations)
+    const nonEmpty = translations.filter(Boolean).length
+    const failed = total - nonEmpty
+    if (failed === 0) {
+      setStatus('done', `✅ 完成 ${nonEmpty}/${total} 段`)
+    } else {
+      setStatus('error', `⚠️ 完成 ${nonEmpty}/${total} 段，${failed} 段失败`)
+    }
+  } catch (e) {
+    setStatus('error', `❌ 翻译失败：${e.message}`)
+  }
+}
+
+$('translateTextBtn').addEventListener('click', async () => {
+  const text = $('textInput').value.trim()
+  if (!text) return
+  const segments = text.split(/\n+/).map(s => s.trim()).filter(Boolean)
+  renderRows(segments)
+  const total = segments.length
+  setStatus('working', `⏳ 翻译 ${total} 段...`)
+  try {
+    const translations = await callTranslateApi(segments, $('tgtLang').value)
+    renderRows(segments, translations)
+    const nonEmpty = translations.filter(Boolean).length
+    const failed = total - nonEmpty
+    if (failed === 0) {
+      setStatus('done', `✅ 完成 ${nonEmpty}/${total} 段`)
+    } else {
+      setStatus('error', `⚠️ 完成 ${nonEmpty}/${total} 段，${failed} 段失败`)
+    }
+  } catch (e) {
+    setStatus('error', `❌ ${e.message}`)
+  }
+})
+
+// ─── 保结构翻译 HTML 片段 ─────────────────────────────
+// 输入框为空时填默认值并聚焦，再次点击才翻译，避免"按钮点了没反应"的体验
+$('translateHtmlBtn').addEventListener('click', async () => {
+  let html = $('htmlInput').value.trim()
+  if (!html) {
+    $('htmlInput').value = '<p>Visit <a href="https://example.com">our great site</a> today. We <em>love</em> building products.</p>'
+    $('htmlInput').focus()
+    setStatus('working', '已填入示例 HTML，再次点击「保结构翻译HTML」开始翻译')
+    return
+  }
+  const trace = $('htmlTrace')
+  trace.innerHTML = '<div class="warn">⏳ 编码 + 翻译中...</div>'
+
+  try {
+    // 1. encode（客户端可见的预处理）
+    const seg = encodeSegment(html)
+    const retainedIds = new Set(extractPlaceholderIds(seg.sourceText))
+
+    trace.innerHTML = `
+<div>📥 <b>原文</b>：<code>${escapeHtml(html.slice(0, 200))}</code></div>
+<div>🏷️ <b>提取标签</b>：${seg.tags.map(t => `<code>${t.id}:${t.type}${JSON.stringify(t.attrs)}</code>`).join(' ') || '（无）'}</div>
+<div>🔡 <b>占位符文本</b>：<code>${escapeHtml(seg.sourceText.slice(0, 200))}</code></div>
+<div>📊 <b>src tokens (${seg.tokens.length})</b>：${seg.tokens.slice(0, 30).map(t => `<code>${escapeHtml(t)}</code>`).join(' ')}${seg.tokens.length > 30 ? '...' : ''}</div>
+<div>⏳ <b>调 LLM（保留占位符 prompt）...</b></div>
+`
+
+    // 2. 调 /api/translate-aligned
+    const r = await fetch('/api/translate-aligned', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ srcHtml: seg.sourceText, tgtLang: $('tgtLang').value }),
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.error || `HTTP ${r.status}`)
+    }
+    const { tgtText } = await r.json()
+
+    // 3. 客户端 projector + render
+    const result = translateAligned(html, tgtText)
+
+    // 4. 跟踪输出
+    const survivingIds = new Set()
+    for (const span of result.spans) survivingIds.add(span.tagId)
+    const dropped = seg.tags.filter(t => !survivingIds.has(t.id))
+    const retained = [...retainedIds]
+    const allKept = survivingIds.size === retained.length
+
+    trace.innerHTML += `
+<div>📤 <b>LLM 译文（含占位符）</b>：<code>${escapeHtml(tgtText.slice(0, 200))}</code></div>
+<div>🔡 <b>tgt tokens (${result.tgtTokens.length})</b>：${result.tgtTokens.slice(0, 30).map(t => `<code>${escapeHtml(t)}</code>`).join(' ')}${result.tgtTokens.length > 30 ? '...' : ''}</div>
+<div>🎯 <b>投影 spans (${result.spans.length})</b>：${result.spans.map(s => `<code>${s.tagId}:[${s.open},${s.close})</code>`).join(' ') || '（无）'}</div>
+<div class="${allKept ? 'ok' : 'warn'}">${allKept
+  ? `✅ LLM 保留了全部 ${survivingIds.size} 个占位符`
+  : `⚠️ LLM 丢了 ${dropped.length} 个占位符：${dropped.map(t => t.id + ':' + t.type).join(', ') || '（span-projector 会用嵌入对齐兜底）'}`}</div>
+<div class="html-result">📝 <b>最终 HTML</b>：${result.html}</div>
+`
+    // 把原文/译文填进双栏视图（替换 rows）
+    setAlignedPanels(html, sanitizeHtmlString(result.html))
+    setStatus('done', `✅ 保结构翻译完成（spans=${result.spans.length}）`)
+  } catch (e) {
+    trace.innerHTML += `<div class="warn">❌ ${escapeHtml(e.message)}</div>`
+    setStatus('error', `❌ ${e.message}`)
+  }
+})
+
+// ─── Tab 切换 ─────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const name = tab.dataset.tab
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab))
+    document.querySelectorAll('.tab-pane').forEach(p => {
+      p.classList.toggle('active', p.dataset.pane === name)
+    })
+    // 切到标注 tab 时刷新列表
+    if (name === 'annotations') refreshAnnoPanel()
+  })
+})
+
+// ─── 标注面板逻辑 ──────────────────────────────────
+let _annoFilter = 'all' // 'all' | 'align_fix' | 'seg_rating'
+let _annoCache = []     // 当前显示的列表
+
+function fmtTimeAgo(ts) {
+  if (!ts) return '—'
+  const diff = Date.now() - ts
+  if (diff < 0) return '刚刚'
+  const s = Math.floor(diff / 1000)
+  if (s < 60) return `${s} 秒前`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} 分钟前`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} 小时前`
+  const d = Math.floor(h / 24)
+  return `${d} 天前`
+}
+
+function fmtYmd(ts) {
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}${m}${dd}`
+}
+
+function renderStars(rating) {
+  if (typeof rating !== 'number') return ''
+  return '⭐'.repeat(Math.max(0, Math.min(5, rating))) + '☆'.repeat(Math.max(0, 5 - rating))
+}
+
+function renderAnnoCard(a) {
+  const isRating = a.kind === AnnotationKind.SEG_RATING
+  const isAlign = a.kind === AnnotationKind.ALIGN_FIX
+  const stars = isRating ? `<span class="anno-stars">${renderStars(a.payload?.rating)}</span>` : ''
+  const icon = isRating ? '⭐' : (isAlign ? '✏️' : '📝')
+  const urlHost = (() => {
+    try { return new URL(a.url || 'about:blank').host } catch { return a.url || '—' }
+  })()
+  const urlPath = (() => {
+    try { return new URL(a.url || 'about:blank').pathname } catch { return '' }
+  })()
+  const summarySrc = (a.srcText || '').slice(0, 80)
+  const summaryTgt = (a.tgtText || '').slice(0, 80)
+  const alignDetail = isAlign && a.payload
+    ? `src[${a.payload.srcTokenIdx}] → tgt[${a.payload.correctedTgtTokenIdx ?? 'null'}] (${a.payload.correctionKind || '?'})`
+    : ''
+  return `
+<div class="anno-card kind-${a.kind}" data-id="${a.id}">
+  <div class="anno-card-head">
+    <span class="anno-kind-icon">${icon}</span>
+    ${stars}
+    <a class="anno-url" href="${escapeHtml(a.url || '#')}" target="_blank" rel="noopener">${escapeHtml(urlHost + urlPath)}</a>
+  </div>
+  <div class="anno-card-body">
+    ${isAlign && alignDetail ? `<div>${escapeHtml(alignDetail)}</div>` : ''}
+    <div><span class="src">${escapeHtml(summarySrc)}</span><span class="arrow">→</span><span class="tgt">${escapeHtml(summaryTgt)}</span></div>
+    <div class="meta">${fmtTimeAgo(a.createdAt)} · ${a.modelVersion || 'unknown'}</div>
+  </div>
+  <div class="anno-card-actions">
+    <button data-act="view">查看</button>
+    <button class="del" data-act="del">删除</button>
+  </div>
+  <div class="anno-detail"></div>
+</div>`
+}
+
+async function refreshAnnoPanel() {
+  let list
+  try {
+    list = await store.listByCreatedAt({ desc: true, limit: 1000 })
+  } catch (e) {
+    // IDB 不可用（隐私模式 / Safari ITP 等）→ 优雅降级
+    $('annoList').innerHTML = `<div class="anno-empty">无法访问本地存储：${escapeHtml(e.message)}<br><small>浏览器可能处于隐私模式</small></div>`
+    return
+  }
+  _annoCache = list
+  const s = await store.stats()
+  $('annoTotal').textContent = s.total
+  $('annoLast24h').textContent = s.last24h
+  $('annoLastSync').textContent = s.unsyncedCount === 0 && s.total > 0 ? '已全部同步' : (s.total === 0 ? '—' : `${s.unsyncedCount} 条待同步`)
+  $('cntAll').textContent = s.total
+  $('cntAlign').textContent = s.byKind[AnnotationKind.ALIGN_FIX] || 0
+  $('cntRating').textContent = s.byKind[AnnotationKind.SEG_RATING] || 0
+  // 渲染
+  const filtered = _annoFilter === 'all' ? list : list.filter(a => a.kind === _annoFilter)
+  if (filtered.length === 0) {
+    $('annoList').innerHTML = `<div class="anno-empty">${list.length === 0 ? '暂无标注' : '此分类下暂无标注'}</div>`
+    return
+  }
+  $('annoList').innerHTML = filtered.map(renderAnnoCard).join('')
+  // 事件代理
+  $('annoList').querySelectorAll('.anno-card').forEach(card => {
+    const id = card.dataset.id
+    card.querySelector('[data-act="view"]').addEventListener('click', () => {
+      const detail = card.querySelector('.anno-detail')
+      const a = _annoCache.find(x => x.id === id)
+      if (!a) return
+      if (detail.classList.contains('show')) {
+        detail.classList.remove('show')
+        return
+      }
+      detail.textContent = JSON.stringify(a, null, 2)
+      detail.classList.add('show')
+    })
+    card.querySelector('[data-act="del"]').addEventListener('click', async () => {
+      if (!confirm('确认删除这条标注？此操作不可撤销。')) return
+      await store.deleteById(id)
+      console.info('[anno]', 'annotation.deleted', { id, kind: _annoCache.find(x => x.id === id)?.kind })
+      refreshAnnoPanel()
+    })
+  })
+}
+
+// 过滤按钮
+$('annoFilters').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-kind]')
+  if (!btn) return
+  _annoFilter = btn.dataset.kind
+  $('annoFilters').querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', b === btn)
+  })
+  refreshAnnoPanel()
+})
+
+// 导出 JSONL
+$('exportJsonlBtn').addEventListener('click', async () => {
+  if (_annoCache.length === 0) {
+    alert('暂无标注可导出')
+    return
+  }
+  const lines = []
+  for await (const line of store.exportJSONL()) lines.push(line)
+  const blob = new Blob([lines.join('')], { type: 'application/x-ndjson' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `annotations-${fmtYmd(Date.now())}.jsonl`
+  document.body.appendChild(a)
+  a.click()
+  setTimeout(() => {
+    URL.revokeObjectURL(url)
+    a.remove()
+  }, 1000)
+  console.info('[anno]', 'annotation.exported', { count: _annoCache.length, bytes: lines.join('').length })
+})
+
+// ─── 演示用：测试时自动播种（仅 window.__seed 时） ───
+// 用法：await window.__seedDemoAnnotations()
+window.__seedDemoAnnotations = async function seedDemoAnnotations() {
+  await store.clear()
+  const now = Date.now()
+  const baseAnno = (i, kind, payload) => ({
+    id: '00000000-0000-4000-8000-' + String(i).padStart(12, '0'),
+    kind,
+    schemaVersion: 1,
+    url: `https://example.com/page/${i}`,
+    domPath: `/html/body/div[${i}]/p[1]`,
+    srcSegmentId: `seg-${i}`,
+    langPair: ['zh', 'en'],
+    srcText: `测试原文段落 ${i}，用于演示标注面板渲染`,
+    tgtText: `Test source paragraph ${i} for annotation panel demo`,
+    srcTokens: ['测试', '原文', '段落', String(i)],
+    tgtTokens: ['Test', 'source', 'paragraph', String(i)],
+    predicted: [[0, 0], [1, 1]],
+    modelVersion: 'nllb-600m-l0h15-v1',
+    payload,
+    context: {},
+    createdAt: now - i * 60_000, // 间隔 1 分钟
+    appVersion: 'demo-1.0.0',
+    userAgent: navigator.userAgent,
+    synced: 0,
+  })
+  // 3 条 SEG_RATING
+  for (let i = 1; i <= 3; i++) {
+    await store.put(baseAnno(i, AnnotationKind.SEG_RATING, { rating: 5 - i + 1 }))
+  }
+  // 2 条 ALIGN_FIX
+  for (let i = 4; i <= 5; i++) {
+    await store.put(baseAnno(i, AnnotationKind.ALIGN_FIX, {
+      srcTokenIdx: 2,
+      predictedTgtTokenIdx: 1,
+      correctedTgtTokenIdx: 2,
+      correctionKind: 'change',
+    }))
+  }
+  return 5
+}
+
+// 暴露 store 供 e2e 调试
+window.__annoStore = store
+window.__annoPanel = { refresh: refreshAnnoPanel }
+
+// 初次进入页面：先静默探测 IDB 是否可用
+store.stats().then(() => {
+  console.info('[anno]', 'anno_panel.ready', { idb: 'ok' })
+}).catch(e => {
+  console.warn('[anno]', 'anno_panel.idb_unavailable', { err: e.message })
+})
+</script>
+</body>
+</html>

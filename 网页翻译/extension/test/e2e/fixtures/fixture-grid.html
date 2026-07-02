@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Grid Container Fixture</title>
+<style>
+body { font: 15px/1.5 -apple-system, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; }
+h1 { font-size: 22px; margin-bottom: 12px; }
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.card {
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+.card h2 { font-size: 15px; margin: 0 0 6px; }
+.card p { margin: 0; color: #4b5563; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Featured Product Recommendations</h1>
+<section class="grid-cards">
+  <div class="card"><h2>Wireless Headphones</h2><p>Noise cancelling over-ear design with forty hours of battery life.</p></div>
+  <div class="card"><h2>Smart Coffee Maker</h2><p>Brew fresh coffee every morning with a simple voice command from your phone.</p></div>
+  <div class="card"><h2>Portable Charger</h2><p>Charge your devices anywhere with twenty thousand milliamp hours of capacity.</p></div>
+  <div class="card"><h2>Fitness Tracker</h2><p>Track your daily activity and sleep patterns with precision sensors and water resistance.</p></div>
+  <div class="card"><h2>Standing Desk</h2><p>Adjust your workspace height for better posture and increased productivity all day.</p></div>
+  <div class="card"><h2>Mechanical Keyboard</h2><p>Tactile switches and customizable backlighting for an exceptional typing experience.</p></div>
+</section>
+<script>window.__xtFixtureReady = true;</script>
+</body>
+</html>

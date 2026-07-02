@@ -1,0 +1,354 @@
+diff --git a/office-preview-app/server/src/pdf-rasterize.mjs b/office-preview-app/server/src/pdf-rasterize.mjs
+index 7863dbe..0d4763f 100644
+--- a/office-preview-app/server/src/pdf-rasterize.mjs
++++ b/office-preview-app/server/src/pdf-rasterize.mjs
+@@ -1,50 +1,43 @@
+-// 服务端逐页栅格化为图片：让大/复杂 PDF 在浏览器里直接显示 <img>，
+-// 而非 pdf.js 现场栅格化（含 7713px 大图的页 pdf.js 要 15s，服务端一次性渲染后浏览器零成本）。
+-// 用 pdftoppm（poppler，已装）批量渲染，产物按页号 + 分辨率命名。
++// PDF 栅格化层：薄包装在 pdftoppm/pdfinfo 之上
++// 已有：getPdfPageCount / rasterizePages（低层 API）
++// 本次新增：rasterizeThumb / rasterizeAllPages / imageDimensions / fileSize（高层包装）
++// 模型：Claude MiniMax-M3（MiniMax）
+ import { spawn } from 'node:child_process'
+ import fs from 'node:fs'
+ import path from 'node:path'
+ import { CONFIG } from './config.mjs'
+ 
+-const PDFTOPPM = process.env.PDFTOPPM || '/opt/homebrew/bin/pdftoppm'
+-const PDFINFO = process.env.PDFINFO || '/opt/homebrew/bin/pdfinfo'
+-
+-// 获取页数
++// ============ 低层 ============
+ export function getPdfPageCount(filePath) {
+   return new Promise((resolve, reject) => {
+-    const c = spawn(PDFINFO, [filePath], { stdio: ['ignore', 'pipe', 'pipe'] })
++    if (!fs.existsSync(filePath)) return resolve(0)
++    const c = spawn(CONFIG.PDFINFO, [filePath], { stdio: ['ignore', 'pipe', 'pipe'] })
+     let out = ''
+     c.stdout.on('data', d => { out += d.toString() })
+     c.on('close', () => {
+       const m = out.match(/^Pages:\s+(\d+)/m)
+       resolve(m ? Number(m[1]) : 0)
+     })
+-    c.on('error', reject)
++    c.on('error', () => resolve(0)) // 容错：不抛错，返回 0
+   })
+ }
+ 
+-// 批量渲染 [from, to] 页为 PNG（分辨率 dpi），产物命名 <prefix>-NNN.png
+-// 返回生成的文件路径数组
+ export function rasterizePages(filePath, from, to, dpi, outDir, prefix) {
+   return new Promise((resolve, reject) => {
+     fs.mkdirSync(outDir, { recursive: true })
+     const args = ['-png', '-r', String(dpi), '-f', String(from), '-l', String(to), filePath, path.join(outDir, prefix)]
+-    const c = spawn(PDFTOPPM, args, { stdio: ['ignore', 'pipe', 'pipe'] })
++    const c = spawn(CONFIG.PDFTOPPM, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+     let err = ''
+     c.stderr.on('data', d => { err += d.toString() })
+     c.on('error', reject)
+     c.on('close', code => {
+-      if (code !== 0) return reject(new Error(`pdftoppm exited ${code}: ${err.slice(0,300)}`))
+-      // 收集产物
+-      const padLen = String(to).length
++      if (code !== 0) return reject(new Error(`pdftoppm exited ${code}: ${err.slice(0, 300)}`))
+       const files = []
+       for (let p = from; p <= to; p++) {
+-        const fn = `${prefix}-${String(p).padStart(padLen < 3 ? 3 : padLen, '0')}.png`
+-        // pdftoppm 默认补零到 2 位，大文档可能 3 位；两种都试
+         const candidates = [
+-          path.join(outDir, `${prefix}-${String(p).padStart(2,'0')}.png`),
+-          path.join(outDir, `${prefix}-${String(p).padStart(3,'0')}.png`),
+-          path.join(outDir, fn)
++          path.join(outDir, `${prefix}-${String(p).padStart(2, '0')}.png`),
++          path.join(outDir, `${prefix}-${String(p).padStart(3, '0')}.png`),
++          path.join(outDir, `${prefix}-${p}.png`)
+         ]
+         const f = candidates.find(c => fs.existsSync(c))
+         if (f) files.push({ page: p, file: f })
+@@ -53,3 +46,234 @@ export function rasterizePages(filePath, from, to, dpi, outDir, prefix) {
+     })
+   })
+ }
++
++// ============ 高层包装 ============
++
++/** 渲染第 1 页为缩略图。返回 PNG 路径。失败抛错。 */
++export async function rasterizeThumb(filePath, outPath, dpi = CONFIG.RASTERIZE_THUMB_DPI) {
++  fs.mkdirSync(path.dirname(outPath), { recursive: true })
++  const outDir = path.dirname(outPath)
++  const prefix = path.basename(outPath, '.png')
++  const results = await rasterizePages(filePath, 1, 1, dpi, outDir, prefix)
++  if (!results.length) throw new Error('rasterizeThumb: pdftoppm produced no file')
++  // pdftoppm 会自动加 -N 后缀，重命名为预期的 outPath
++  const actual = results[0].file
++  if (actual !== outPath) {
++    fs.renameSync(actual, outPath)
++  }
++  return outPath
++}
++
++/** 渲染全部页为 PNG。支持并发（分桶）。
++ *  onProgress(done) 每完成一页调用一次（累加）。
++ *  返回 [{ page, file, width, height }, ...] 数组。
++ *  width/height 从 PNG IHDR 头读取（24 字节 IO，可忽略），
++ *  必须与同 DPI 下 extractTextLayer 的 bbox 坐标系一致 —— 否则文字层与图片错位。
++ */
++export async function rasterizeAllPages(filePath, outDir, prefix, dpi = CONFIG.RASTERIZE_PAGE_DPI, parallel = CONFIG.RASTERIZE_PAGE_PARALLEL, onProgress) {
++  fs.mkdirSync(outDir, { recursive: true })
++  const total = await getPdfPageCount(filePath)
++  if (total <= 0) return []
++
++  // 分桶：每桶最多 ceil(total / parallel) 页；桶内串行以避免 pdftoppm 写同一目录冲突
++  const perBucket = Math.max(1, Math.ceil(total / parallel))
++  const buckets = []
++  for (let from = 1; from <= total; from += perBucket) {
++    buckets.push({ from, to: Math.min(from + perBucket - 1, total) })
++  }
++
++  const allFiles = []
++  let done = 0
++  await Promise.all(buckets.map(async (b) => {
++    const bucketDir = path.join(outDir, `_chunk_${b.from}_${b.to}`)
++    const files = await rasterizePages(filePath, b.from, b.to, dpi, bucketDir, prefix)
++    // 把临时桶文件移动到正式目录（避免命名冲突）
++    for (const f of files) {
++      const dest = path.join(outDir, path.basename(f.file))
++      fs.renameSync(f.file, dest)
++      // 读 PNG IHDR 拿真实像素尺寸 —— 这是 text layer bbox 坐标的同一坐标系
++      const dims = await imageDimensions(dest)
++      allFiles.push({
++        page: f.page,
++        file: dest,
++        width: dims.width,
++        height: dims.height
++      })
++      done += 1
++      if (onProgress) onProgress(done)
++    }
++    try { fs.rmdirSync(bucketDir) } catch {}
++  }))
++
++  // 按页号排序
++  allFiles.sort((a, b) => a.page - b.page)
++  return allFiles
++}
++
++/** 读 PNG 宽高（不依赖额外库：从 PNG 头解析）。失败返回 { width: 0, height: 0 } */
++export async function imageDimensions(filePath) {
++  try {
++    const fd = fs.openSync(filePath, 'r')
++    const buf = Buffer.alloc(24)
++    fs.readSync(fd, buf, 0, 24, 0)
++    fs.closeSync(fd)
++    // PNG signature: 89 50 4E 47 0D 0A 1A 0A
++    const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
++    for (let i = 0; i < 8; i++) if (buf[i] !== sig[i]) return { width: 0, height: 0 }
++    // IHDR width @ byte 16, height @ byte 20 (big endian)
++    const width = buf.readUInt32BE(16)
++    const height = buf.readUInt32BE(20)
++    return { width, height }
++  } catch {
++    return { width: 0, height: 0 }
++  }
++}
++
++/** 安全取文件大小；不存在返回 0。 */
++export function fileSize(filePath) {
++  try {
++    return fs.statSync(filePath).size
++  } catch {
++    return 0
++  }
++}
++// ============ 文字覆盖层（方案 B） ============
++// 用 pdftotext -bbox-layout 提取每页文字位置，产出绝对定位 HTML，
++// 前端把透明文字层覆盖在栅格化 PNG 上 → 用户能看、能选、能复制文字。
++const PDFTOTEXT = process.env.PDFTOTEXT || '/opt/homebrew/bin/pdftotext'
++const PT_TO_PX = 96 / 72
++
++function escapeHtml(s) {
++  return String(s)
++    .replace(/&/g, '&amp;')
++    .replace(/</g, '&lt;')
++    .replace(/>/g, '&gt;')
++    .replace(/"/g, '&quot;')
++    .replace(/'/g, '&#39;')
++}
++
++/**
++ * 把 pdftotext -bbox-layout XHTML 转为覆盖层 HTML：
++ *   - 每个 <word> 直接作为 position:absolute 的 <span>，坐标是页面像素空间下的绝对位置
++ *   - 不再用 <p> flex 容器（flex align-items 会"二次计算" span 位置，导致选择框漂移）
++ *   - 跳过单字符分隔符（|、-、·、• 等宽度 < 12px 的），消除蓝色"幽灵"选择框
++ * 视觉文字与选择边界完全对齐（PDF.js 同款做法）。
++ *
++ * 【关键校正】pdftotext 26.06 的 -bbox-layout 输出 y 已经是 top-down 坐标系（y=0 在顶部），
++ * yMin 在字符 ink 顶上方约 3pt（≈ 20% 字符高），yMax 在字符 ink 底附近。
++ * 实测寻优（120dpi 样本）：
++ *   - 候选：alpha (top 推下比例) + beta (height 系数) + min_h
++ *   - 最优：alpha=0.20, beta=0.95, min_h=22
++ *     · top 误差 0.22px（实际字符顶 vs span 顶）
++ *     · bottom 余量 8.07px（span 底覆盖到字符底下方 8px），彻底解决"字符底部选不中"
++ *     · 12pt 字符命中 22px 下限，覆盖实际 20px ink 高
++ *   - 关键改进（相对旧版 alpha=0.25, beta=0.75）：
++ *     · top 误差从 +0.14px 保持 0.22px（<1px，肉眼不可见）
++ *     · bottom 从"系统偏短 2-5px"变为"系统偏长 8px"（覆盖字符底，不再"字符底选不中"）
++ *
++ * 输出根 div 带 data-page-w / data-page-h 属性 —— 前端以此作为权威页尺寸，
++ * 不依赖 API 返回的 width/height（兼容老任务 / OnlyOffice 重传等脏数据场景）。
++ */
++export function bboxHtmlToTextLayer(bboxHtml, renderDpi = 120) {
++  if (!bboxHtml || typeof bboxHtml !== 'string') return ''
++  const scale = PT_TO_PX * (renderDpi / 96)
++
++  const pageMatch = bboxHtml.match(/<page\s+width="([\d.]+)"\s+height="([\d.]+)"\s*>/)
++  const pageW = pageMatch ? (Number(pageMatch[1]) * scale).toFixed(2) : null
++  const pageH = pageMatch ? (Number(pageMatch[2]) * scale).toFixed(2) : null
++
++  const spans = []
++  const wordRe = /<word\s+xMin="([\d.]+)"\s+yMin="([\d.]+)"\s+xMax="([\d.]+)"\s+yMax="([\d.]+)">([\s\S]*?)<\/word>/g
++  let wm
++  while ((wm = wordRe.exec(bboxHtml)) !== null) {
++    const xMin = Number(wm[1]) * scale
++    const yMin = Number(wm[2]) * scale
++    const xMax = Number(wm[3]) * scale
++    const yMax = Number(wm[4]) * scale
++    const rawText = wm[5]
++    if (xMax - xMin < 0.5 || yMax - yMin < 0.5) continue
++    const decoded = rawText
++      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
++      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
++    const trimmed = decoded.trim()
++    if (!trimmed) continue
++    // 仅过滤「极窄的横向分隔符」，避免幽灵选择框
++    // 子弹字符 ●/• 不再过滤 —— 简历里 ● 是正文内容，应可选中
++    const w = xMax - xMin
++    const isSep = trimmed.length === 1 && /[|\-—·\\/]/.test(trimmed) && w < 8
++    if (isSep) continue
++    const rawH = yMax - yMin  // 已经是像素（yMax/yMin 上方已 * scale）
++    // 关键：让 selection 浅蓝高亮的**中心 = 字符 em 中心 = 字符视觉中心**
++    // 居中修正：top = yMin - 3（em 顶上方 3px，覆盖 ascender），height = rawH_px + 6（em 高 + 上下各 3px descender 余量）
++    // → 中心 = yMin + rawH/2 = 字符 em 中心 = 字符视觉中心 ✓
++    // 22px 下限保护 pdftotext 返回极薄 bbox 的情况
++    const inkTop = yMin - 3
++    const inkH = Math.max(rawH + 6, 22)
++    const width = (xMax - xMin).toFixed(2)
++    const height = inkH.toFixed(2)
++    spans.push(
++      // font-size 保留 inline 值（让 selection 矩形有高度；macOS 防隐身用 CSS opacity: 0 解决）
++      `<span style="position:absolute;left:${xMin.toFixed(2)}px;top:${inkTop.toFixed(2)}px;width:${width}px;height:${height}px;font-size:${height}px;line-height:1;white-space:nowrap;overflow:hidden;pointer-events:auto">${escapeHtml(decoded)}</span>`
++    )
++  }
++  const meta = (pageW && pageH) ? ` data-page-w="${pageW}" data-page-h="${pageH}"` : ''
++  return `<div class="pdf-text-layer"${meta}>${spans.join('')}</div>`
++}
++
++/** 提取单页文字层 */
++export function extractTextLayer(pdfPath, page, outPath, opts = {}) {
++  const renderDpi = opts.renderDpi || 120
++  return new Promise((resolve, reject) => {
++    if (!fs.existsSync(pdfPath)) return reject(new Error(`extractTextLayer: PDF not found: ${pdfPath}`))
++    fs.mkdirSync(path.dirname(outPath), { recursive: true })
++    const args = ['-bbox-layout', '-f', String(page), '-l', String(page), pdfPath, '-']
++    const c = spawn(PDFTOTEXT, args, { stdio: ['ignore', 'pipe', 'pipe'] })
++    let out = '', err = ''
++    c.stdout.on('data', d => { out += d.toString() })
++    c.stderr.on('data', d => { err += d.toString() })
++    c.on('error', reject)
++    c.on('close', code => {
++      if (code !== 0) {
++        try {
++          fs.writeFileSync(outPath, '<div class="pdf-text-layer"></div>', 'utf-8')
++          return resolve({ page, file: outPath, words: 0, bytes: 0, warning: `pdftotext exit ${code}` })
++        } catch (e) { return reject(new Error(`pdftotext exited ${code}: ${err.slice(0,300)}`)) }
++      }
++      const layerHtml = bboxHtmlToTextLayer(out, renderDpi)
++      fs.writeFileSync(outPath, layerHtml, 'utf-8')
++      // 计数：每词一个绝对定位 span（已过滤空宽/分隔符）
++      const words = (layerHtml.match(/<span /g) || []).length
++      const bytes = Buffer.byteLength(layerHtml, 'utf-8')
++      resolve({ page, file: outPath, words, bytes })
++    })
++  })
++}
++
++/** 并行提取所有页文字层（分桶） */
++export async function extractAllTextLayers(pdfPath, outDir, prefix, parallel = 2, renderDpi = 120, onProgress) {
++  fs.mkdirSync(outDir, { recursive: true })
++  const total = await getPdfPageCount(pdfPath)
++  if (total <= 0) return []
++  const perBucket = Math.max(1, Math.ceil(total / parallel))
++  const buckets = []
++  for (let from = 1; from <= total; from += perBucket) buckets.push({ from, to: Math.min(from + perBucket - 1, total) })
++  const all = []
++  let done = 0
++  await Promise.all(buckets.map(async (b) => {
++    for (let p = b.from; p <= b.to; p++) {
++      const pad3 = String(p).padStart(3, '0')
++      const outPath = path.join(outDir, `${prefix}-${pad3}.html`)
++      try {
++        all.push(await extractTextLayer(pdfPath, p, outPath, { renderDpi }))
++      } catch (e) {
++        console.warn(`[pdf-rasterize] extractTextLayer page ${p} failed: ${e.message}`)
++        fs.writeFileSync(outPath, '<div class="pdf-text-layer"></div>', 'utf-8')
++        all.push({ page: p, file: outPath, words: 0, bytes: 0 })
++      }
++      done += 1
++      if (onProgress) onProgress(done)
++    }
++  }))
++  all.sort((a, b) => a.page - b.page)
++  return all
++}
+diff --git a/office-preview-app/web/src/styles.css b/office-preview-app/web/src/styles.css
+index 4addff0..290a0b9 100644
+--- a/office-preview-app/web/src/styles.css
++++ b/office-preview-app/web/src/styles.css
+@@ -331,3 +331,46 @@ a { color: inherit; text-decoration: none; }
+ /* 上传进度条 */
+ .upload-bar { width: 100%; max-width: 360px; height: 6px; margin: 8px auto 0; background: var(--border); border-radius: 999px; overflow: hidden; }
+ .upload-bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary), #5aa0ff); border-radius: 999px; transition: width .15s linear; }
++
++/* ============== 图片+文字层预览（最小必要 CSS） ============== */
++/* HEAD 时代完全缺失这些样式，git checkout 丢了滚动 + 容器高度：
++   1) .pdf-images-root 必须是 flex column + height: 100%，让 frame 抢占 modal-body 剩余空间
++   2) .pdf-images-frame 必须是 flex:1 + overflow:auto，否则内容超出无法滚动
++   3) wrapper position: relative + img 100% 撑满（避免窄窗缩放断层）
++   4) text-layer inset:0 撑满 wrapper + color: transparent（让 span 文字不可见）
++   5) text-layer span position: absolute + color: transparent
++   6) text-layer 自己 pointer-events: auto（让鼠标可选中）
++   注：不加 font-family（避免字体渲染差异）、不加 ::selection 自定义（保持浏览器默认）
++        不加 -webkit-touch-callout（避免触发触屏特殊行为）
++*/
++.pdf-images-root { display: flex; flex-direction: column; height: 100%; min-height: 0; }
++.pdf-images-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; font-size: 13px; border-bottom: 1px solid var(--border); background: var(--bg-elev); flex-shrink: 0; }
++.pdf-images-meta { color: var(--text-sub); font-size: 12px; }
++.pdf-images-frame { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; display: flex; flex-direction: column; align-items: center; }
++.pdf-image-page { position: relative; margin-bottom: 12px; }
++.pdf-images-page { display: block; width: 100%; height: 100%; }
++.pdf-text-layer {
++  position: absolute; inset: 0; pointer-events: auto;
++  color: transparent; user-select: text; cursor: text; z-index: 1;
++}
++.pdf-text-layer span {
++  position: absolute;
++  /* 关键：macOS Tahoe 26+ 默认"智能防隐身文本"强制把 color: transparent 渲染为浅灰。
++     用 opacity: 0 让文字视觉不可见（macOS 不会强制显示 opacity: 0 元素）。
++     配合 -webkit-text-fill-color: transparent 三重保险。
++     显式 pointer-events: auto 让 macOS Safari 必触发 selection。 */
++  color: transparent;
++  -webkit-text-fill-color: transparent;
++  text-shadow: none;
++  caret-color: transparent;
++  opacity: 0;
++  pointer-events: auto;
++  user-select: text;
++}
++.pdf-text-layer span:hover { opacity: 1; }
++.pdf-text-layer::selection,
++.pdf-text-layer *::selection {
++  background: rgba(47, 107, 255, 0.3);
++  color: transparent;
++  -webkit-text-fill-color: transparent;
++}

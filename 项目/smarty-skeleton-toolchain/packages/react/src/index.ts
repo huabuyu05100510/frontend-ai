@@ -1,0 +1,1 @@
+export { default as SmartySkeleton } from './SmartySkeleton';

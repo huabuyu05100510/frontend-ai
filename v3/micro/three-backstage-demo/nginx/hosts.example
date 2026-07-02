@@ -1,0 +1,69 @@
+# =============================================================================
+# 本地多域名模拟 - hosts 配置示例
+#
+# ⚠️ 重要：仅用于本地开发与验收！
+# =============================================================================
+
+# ---------- macOS / Linux：编辑 /etc/hosts ----------
+#   sudo vim /etc/hosts
+# 在文件末尾追加以下行：
+
+127.0.0.1   console.local
+127.0.0.1   a.local
+127.0.0.1   b.local
+127.0.0.1   c.local
+127.0.0.1   api.local
+127.0.0.1   auth.local
+
+
+# ---------- Windows：编辑 C:\Windows\System32\drivers\etc\hosts ----------
+# 用管理员权限打开记事本编辑，追加相同内容
+
+
+# =============================================================================
+# 为什么需要多域名？
+# =============================================================================
+# 这个 Demo 的核心特性：hostname → basename 自动映射
+#
+#   a.local     → basename = '/system-a'
+#   b.local     → basename = '/system-b'
+#   c.local     → basename = '/system-c'
+#   console.local → basename = ''
+#
+# 只有当浏览器真的用不同 hostname 访问时，才能验证这套机制是否生效。
+# 用 localhost 一个域名没法测——所有请求 basename 都是空的。
+#
+# 通过本地 hosts 模拟 *.local 域名，再用 Nginx 转发到同一个 vite dev server，
+# 就可以在浏览器看到完整效果，且无需真实 DNS / 证书。
+
+
+# =============================================================================
+# 验证步骤
+# =============================================================================
+# 1. 修改 /etc/hosts（上面那段）
+#
+# 2. 启动 vite dev server（已在跑）：
+#      cd /Users/didi/Downloads/前端AI面试题/v3/micro/three-backstage-demo
+#      npm run dev
+#      # → http://127.0.0.1:5180
+#
+# 3. （可选）启动 nginx 反向代理：
+#      # macOS Homebrew
+#      ln -sf $(pwd)/nginx/dev-proxy.conf /opt/homebrew/etc/nginx/servers/console-dev.conf
+#      nginx -t
+#      brew services restart nginx
+#
+#    或者直接用 nginx（不通过 brew services）：
+#      nginx -c $(pwd)/nginx/dev-proxy.conf -p $(pwd)
+#
+# 4. 浏览器测试：
+#      - http://console.local         → 一站式入口
+#      - http://a.local              → 系统 A 入口（自动跳到 /system-a/...）
+#      - http://b.local              → 系统 B 入口
+#      - http://c.local              → 系统 C 入口
+#
+# 5. 验证关键特性：
+#      - 浏览器访问 http://a.local 直接渲染系统 A 的页面（无 301 重定向）
+#      - DevTools Network 面板看不到 3xx 重定向
+#      - DevTools Console 输入 window.location.hostname 应返回对应域名
+#      - 在三个域名间切换，登录态保持一致（同主域 Cookie）

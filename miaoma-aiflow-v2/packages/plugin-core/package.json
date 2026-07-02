@@ -1,0 +1,30 @@
+{
+    "name": "@miaoma-aiflow/plugin-core",
+    "private": true,
+    "license": "MIAOMAEDU",
+    "version": "1.0.0",
+    "keywords": [
+        "miaoma",
+        "aiflow",
+        "plugin",
+        "typescript"
+    ],
+    "description": "妙码 AI Flow 插件核心类型定义",
+    "type": "module",
+    "source": "src/index.ts",
+    "main": "build/cjs/index.cjs",
+    "module": "build/esm/index.js",
+    "types": "build/esm/index.d.ts",
+    "scripts": {
+        "build:watch": "tsup --watch",
+        "build": "tsup",
+        "clean": "rimraf build",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "json-schema": "^0.4.0"
+    },
+    "devDependencies": {
+        "@types/json-schema": "^7.0.15"
+    }
+}

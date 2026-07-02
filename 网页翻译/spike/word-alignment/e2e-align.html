@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>词级对齐演示 — 浏览器内 cross-attention 重构</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 28px 24px 80px;
+    line-height: 1.6;
+  }
+  h1 {
+    font-size: 20px;
+    margin-bottom: 8px;
+    color: #58a6ff;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  .meta {
+    font-size: 12px;
+    color: #8b949e;
+    margin-bottom: 24px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 10px 14px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .meta b { color: #7ee786; font-weight: 500; }
+  .meta .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .meta .pill::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f0883e;
+    box-shadow: 0 0 8px #f0883e;
+  }
+
+  /* loading */
+  #loading {
+    text-align: center;
+    padding: 80px 20px;
+    color: #8b949e;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+  }
+  #loading .spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid #30363d;
+    border-top-color: #f0883e;
+    border-radius: 50%;
+    margin: 0 auto 16px;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading .hint { margin-top: 10px; color: #6e7681; font-size: 12px; }
+  #loading .retry-count {
+    margin-top: 6px;
+    color: #f0883e;
+    font-size: 11px;
+  }
+  #loading.error .spinner { border-top-color: #f85149; animation: none; }
+  #loading.error .hint { color: #f85149; }
+
+  /* card */
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px 22px;
+    margin-bottom: 18px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: #444c56; }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .case-id {
+    color: #f0883e;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+  }
+  .accuracy {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: #8b949e;
+  }
+  .accuracy b { color: #7ee786; }
+
+  .row-label {
+    font-size: 11px;
+    color: #6e7681;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+    font-family: ui-monospace, monospace;
+  }
+  .row-label .lang { color: #58a6ff; }
+  .row-label .lang.tgt { color: #7ee786; }
+  .token-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: baseline;
+    padding: 10px 12px;
+    background: #0d1117;
+    border-radius: 6px;
+    border: 1px solid #21262d;
+    margin-bottom: 10px;
+    font-size: 15px;
+    line-height: 2;
+  }
+  .token-row.tgt { margin-bottom: 0; }
+
+  .tok {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 0.12s ease, box-shadow 0.12s ease, color 0.12s ease, transform 0.12s ease;
+    border: 1px solid transparent;
+    user-select: none;
+  }
+  .tok.src {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #d2a8ff;
+    font-size: 14px;
+  }
+  .tok.tgt {
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #79c0ff;
+    font-size: 16px;
+  }
+  .tok.whitespace { color: #484f58; padding: 2px 2px; }
+  .tok:hover { background: #21262d; }
+  .tok.dim { opacity: 0.32; transition: opacity 0.18s ease; }
+
+  /* highlight states */
+  .tok.hi-primary {
+    background: #f0883e !important;
+    color: #0d1117 !important;
+    box-shadow: 0 0 0 2px rgba(240, 136, 62, 0.55), 0 4px 14px rgba(240, 136, 62, 0.35);
+    transform: translateY(-1px);
+    z-index: 2;
+    position: relative;
+  }
+  .tok.hi-related {
+    background: rgba(240, 136, 62, 0.28) !important;
+    color: #ffb27a !important;
+    box-shadow: 0 0 0 1px rgba(240, 136, 62, 0.5);
+    transform: translateY(-1px);
+    z-index: 1;
+    position: relative;
+  }
+
+  /* info bar */
+  .info-bar {
+    margin-top: 12px;
+    min-height: 28px;
+    padding: 8px 12px;
+    background: #21262d;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: #8b949e;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    transition: background 0.2s;
+  }
+  .info-bar.active {
+    background: #2d1a0f;
+    color: #ffb27a;
+    border: 1px solid rgba(240, 136, 62, 0.3);
+  }
+  .info-bar .arrow { color: #f0883e; font-weight: bold; }
+  .info-bar .score {
+    background: #0d1117;
+    padding: 1px 8px;
+    border-radius: 3px;
+    color: #7ee786;
+    font-weight: 500;
+  }
+  .info-bar .token-sample {
+    color: #d2a8ff;
+    font-weight: 500;
+  }
+
+  /* footer */
+  footer {
+    margin-top: 40px;
+    padding: 20px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #8b949e;
+    line-height: 1.7;
+  }
+  footer b { color: #58a6ff; }
+  footer code {
+    font-family: ui-monospace, monospace;
+    background: #0d1117;
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: #d2a8ff;
+    font-size: 11px;
+  }
+
+  .summary-stats {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 20px;
+    font-size: 12px;
+    color: #8b949e;
+    font-family: ui-monospace, monospace;
+  }
+  .summary-stats b { color: #7ee786; font-size: 16px; }
+</style>
+</head>
+<body>
+  <h1>词级对齐演示 — 浏览器内 cross-attention 重构</h1>
+  <div class="subtitle">Hover 英文词查看中文对齐，或 hover 中文词反查英文 — 纯浏览器侧 span-to-span 映射</div>
+
+  <div class="meta" id="meta" hidden>
+    <span class="pill">就绪</span>
+    <span>模型: <b id="m-model">—</b></span>
+    <span>方法: <b id="m-method">—</b></span>
+    <span>时间: <b id="m-time">—</b></span>
+    <span>用例: <b id="m-cases">0</b></span>
+  </div>
+
+  <div class="summary-stats" id="summary" hidden></div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <div>等待 <code>./results/e2e-alignment.json</code> 生成中...</div>
+    <div class="hint">对齐算法 agent 正在跑 e2e，几秒后这里会自动渲染</div>
+    <div class="retry-count" id="retryCount"></div>
+  </div>
+
+  <div id="cards"></div>
+
+  <footer>
+    <b>方法原理</b>：从 ONNX 缓存节点 <code>present.*.encoder.key/value</code> 反推 cross-attention，纯 JS 实现，无 Python。
+    每对 (src token, tgt token) 算 attention 权重作为对齐得分，hover 时高亮分数最高的若干映射。
+  </footer>
+
+<script type="module">
+  'use strict';
+
+  const RESULT_URL = './results/e2e-alignment.json';
+  const MAX_RETRIES = 30;
+  const RETRY_INTERVAL = 2000;
+
+  const loadingEl = document.getElementById('loading');
+  const retryCountEl = document.getElementById('retryCount');
+  const cardsEl = document.getElementById('cards');
+  const metaEl = document.getElementById('meta');
+  const summaryEl = document.getElementById('summary');
+
+  /** 带 2s 重试的 fetch，最多 MAX_RETRIES 次 */
+  async function fetchWithRetry(url) {
+    let lastErr = null;
+    for (let i = 1; i <= MAX_RETRIES; i++) {
+      retryCountEl.textContent = `重试 ${i}/${MAX_RETRIES} ...`;
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.ok) {
+          return await res.json();
+        }
+        lastErr = new Error(`HTTP ${res.status}`);
+      } catch (e) {
+        lastErr = e;
+      }
+      if (i < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_INTERVAL));
+      }
+    }
+    throw lastErr || new Error('fetch failed');
+  }
+
+  /** 安全转义文本，防 JSON 中可能出现的 HTML 字符 */
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * 把对齐数组转成两组索引 map：
+   *   src2tgt: srcIdx -> [{tgtIdx, score}]
+   *   tgt2src: tgtIdx -> [{srcIdx, score}]
+   */
+  function buildAlignmentMaps(alignments) {
+    const src2tgt = new Map();
+    const tgt2src = new Map();
+    for (const a of alignments || []) {
+      const s = a.srcIdx, t = a.tgtIdx, sc = a.score;
+      if (!src2tgt.has(s)) src2tgt.set(s, []);
+      src2tgt.get(s).push({ tgtIdx: t, score: sc });
+      if (!tgt2src.has(t)) tgt2src.set(t, []);
+      tgt2src.get(t).push({ srcIdx: s, score: sc });
+    }
+    // 每个 src 的多个 tgt 按 score 降序
+    for (const arr of src2tgt.values()) arr.sort((a, b) => b.score - a.score);
+    for (const arr of tgt2src.values()) arr.sort((a, b) => b.score - a.score);
+    return { src2tgt, tgt2src };
+  }
+
+  /** 计算一个 case 的"准确率"：用 top-1 对齐的平均 score 近似 */
+  function caseAccuracy(c, maps) {
+    if (!c.alignments || c.alignments.length === 0) return null;
+    // 每个 tgt 取最高分 src，求均值
+    let sum = 0, n = 0;
+    for (const arr of maps.tgt2src.values()) {
+      if (arr.length) { sum += arr[0].score; n++; }
+    }
+    return n ? sum / n : null;
+  }
+
+  /** 渲染单行 token */
+  function renderTokenRow(tokens, kind, caseId) {
+    const row = document.createElement('div');
+    row.className = 'token-row ' + kind;
+    tokens.forEach((tok, i) => {
+      const span = document.createElement('span');
+      span.className = 'tok ' + kind;
+      span.dataset.idx = String(i);
+      span.dataset.kind = kind;
+      span.dataset.caseId = caseId;
+      span.textContent = tok.text;
+      if (tok.text === ' ' || /^\s+$/.test(tok.text)) {
+        span.classList.add('whitespace');
+      }
+      // tooltip: 显示 idx
+      span.title = `[${i}] "${tok.text.replace(/\s+/g, ' ')}"`;
+      row.appendChild(span);
+    });
+    return row;
+  }
+
+  /** 在某个 case 内部绑定 hover 交互 */
+  function bindHover(card, srcRow, tgtRow, maps, infoBar, caseObj) {
+    const srcToks = [...srcRow.querySelectorAll('.tok')];
+    const tgtToks = [...tgtRow.querySelectorAll('.tok')];
+    const allToks = [...srcToks, ...tgtToks];
+
+    function clearHighlight() {
+      for (const t of allToks) {
+        t.classList.remove('hi-primary', 'hi-related', 'dim');
+      }
+      infoBar.classList.remove('active');
+      infoBar.innerHTML = '<span style="color:#6e7681;">悬停 token 查看对齐 →</span>';
+    }
+
+    function highlightSrc(srcIdx) {
+      clearHighlight();
+      const primary = srcToks[srcIdx];
+      if (!primary) return;
+      primary.classList.add('hi-primary');
+      const related = maps.src2tgt.get(srcIdx) || [];
+      if (related.length === 0) {
+        // 无对齐：dim 其它 token
+        for (const t of allToks) if (t !== primary) t.classList.add('dim');
+        infoBar.classList.add('active');
+        infoBar.innerHTML = `<span class="token-sample">"${esc(caseObj.srcTokens[srcIdx]?.text || '')}"</span>
+          <span style="color:#6e7681;">→ 无对齐</span>`;
+        return;
+      }
+      related.forEach((r, i) => {
+        const t = tgtToks[r.tgtIdx];
+        if (!t) return;
+        t.classList.add(i === 0 ? 'hi-related' : 'hi-related');
+        t.style.opacity = String(0.5 + 0.5 * Math.max(0, r.score));
+      });
+      // dim 其它
+      for (const t of allToks) {
+        if (t === primary) continue;
+        if (t.classList.contains('hi-related')) continue;
+        t.classList.add('dim');
+      }
+      // info bar
+      const tgtList = related.map(r =>
+        `<span class="token-sample">${esc(caseObj.tgtTokens[r.tgtIdx]?.text || '')}</span>
+         <span class="score">${r.score.toFixed(3)}</span>`
+      ).join(' <span class="arrow">·</span> ');
+      infoBar.classList.add('active');
+      infoBar.innerHTML = `<span class="token-sample">${esc(caseObj.srcTokens[srcIdx]?.text || '')}</span>
+        <span class="arrow">→</span> ${tgtList}`;
+    }
+
+    function highlightTgt(tgtIdx) {
+      clearHighlight();
+      const primary = tgtToks[tgtIdx];
+      if (!primary) return;
+      primary.classList.add('hi-primary');
+      const related = maps.tgt2src.get(tgtIdx) || [];
+      if (related.length === 0) {
+        for (const t of allToks) if (t !== primary) t.classList.add('dim');
+        infoBar.classList.add('active');
+        infoBar.innerHTML = `<span class="token-sample">"${esc(caseObj.tgtTokens[tgtIdx]?.text || '')}"</span>
+          <span style="color:#6e7681;">← 无对齐</span>`;
+        return;
+      }
+      related.forEach(r => {
+        const t = srcToks[r.srcIdx];
+        if (!t) return;
+        t.classList.add('hi-related');
+        t.style.opacity = String(0.5 + 0.5 * Math.max(0, r.score));
+      });
+      for (const t of allToks) {
+        if (t === primary) continue;
+        if (t.classList.contains('hi-related')) continue;
+        t.classList.add('dim');
+      }
+      const srcList = related.map(r =>
+        `<span class="token-sample">${esc(caseObj.srcTokens[r.srcIdx]?.text || '')}</span>
+         <span class="score">${r.score.toFixed(3)}</span>`
+      ).join(' <span class="arrow">·</span> ');
+      infoBar.classList.add('active');
+      infoBar.innerHTML = `${srcList} <span class="arrow">→</span>
+        <span class="token-sample">${esc(caseObj.tgtTokens[tgtIdx]?.text || '')}</span>`;
+    }
+
+    srcToks.forEach((t, i) => {
+      t.addEventListener('mouseenter', () => highlightSrc(i));
+    });
+    tgtToks.forEach((t, i) => {
+      t.addEventListener('mouseenter', () => highlightTgt(i));
+    });
+    card.addEventListener('mouseleave', clearHighlight);
+    // 初始 info bar
+    clearHighlight();
+  }
+
+  function renderCase(caseObj, idx) {
+    const card = document.createElement('section');
+    card.className = 'card';
+
+    const maps = buildAlignmentMaps(caseObj.alignments);
+    const acc = caseAccuracy(caseObj, maps);
+
+    const header = document.createElement('div');
+    header.className = 'card-header';
+    const method = caseObj.method || '—';
+    header.innerHTML = `
+      <span class="case-id">CASE #${String(idx + 1).padStart(2, '0')}</span>
+      <span class="accuracy">method: <b>${esc(method)}</b>${
+        acc !== null ? ` · 对齐均分 <b>${acc.toFixed(3)}</b>` : ''
+      } · align pairs: <b>${(caseObj.alignments || []).length}</b></span>
+    `;
+    card.appendChild(header);
+
+    // src row
+    const srcLabel = document.createElement('div');
+    srcLabel.className = 'row-label';
+    srcLabel.innerHTML = '<span class="lang">SRC</span> · 原文';
+    card.appendChild(srcLabel);
+    const srcRow = renderTokenRow(caseObj.srcTokens || [], 'src', String(idx));
+    card.appendChild(srcRow);
+
+    // tgt row
+    const tgtLabel = document.createElement('div');
+    tgtLabel.className = 'row-label';
+    tgtLabel.innerHTML = '<span class="lang tgt">TGT</span> · 译文';
+    card.appendChild(tgtLabel);
+    const tgtRow = renderTokenRow(caseObj.tgtTokens || [], 'tgt', String(idx));
+    card.appendChild(tgtRow);
+
+    // info bar
+    const infoBar = document.createElement('div');
+    infoBar.className = 'info-bar';
+    card.appendChild(infoBar);
+
+    bindHover(card, srcRow, tgtRow, maps, infoBar, caseObj);
+    return card;
+  }
+
+  function render(data) {
+    loadingEl.hidden = true;
+    metaEl.hidden = false;
+    summaryEl.hidden = false;
+
+    const meta = data.meta || {};
+    const cases = Array.isArray(data.cases) ? data.cases : [];
+
+    document.getElementById('m-model').textContent = meta.model || '—';
+    document.getElementById('m-method').textContent =
+      (cases[0] && cases[0].method) || meta.method || '—';
+    document.getElementById('m-time').textContent = meta.timestamp || '—';
+    document.getElementById('m-cases').textContent = String(cases.length);
+
+    const totalPairs = cases.reduce((s, c) => s + (c.alignments?.length || 0), 0);
+    const allScores = cases.flatMap(c => (c.alignments || []).map(a => a.score));
+    const avg = allScores.length
+      ? allScores.reduce((a, b) => a + b, 0) / allScores.length
+      : 0;
+    summaryEl.innerHTML = `
+      <span>用例数 <b>${cases.length}</b></span>
+      <span>对齐对数 <b>${totalPairs}</b></span>
+      <span>平均 score <b>${avg.toFixed(3)}</b></span>
+      <span>src token 总数 <b>${cases.reduce((s, c) => s + (c.srcTokens?.length || 0), 0)}</b></span>
+      <span>tgt token 总数 <b>${cases.reduce((s, c) => s + (c.tgtTokens?.length || 0), 0)}</b></span>
+    `;
+
+    cardsEl.innerHTML = '';
+    cases.forEach((c, i) => {
+      cardsEl.appendChild(renderCase(c, i));
+    });
+
+    if (cases.length === 0) {
+      cardsEl.innerHTML = '<div class="card">cases 为空</div>';
+    }
+  }
+
+  // === 启动 ===
+  (async () => {
+    try {
+      const data = await fetchWithRetry(RESULT_URL);
+      if (!data || !Array.isArray(data.cases)) {
+        throw new Error('e2e-align.json 缺少 cases 字段或格式不对');
+      }
+      render(data);
+    } catch (e) {
+      loadingEl.classList.add('error');
+      loadingEl.querySelector('.hint').textContent =
+        `加载失败（重试 ${MAX_RETRIES} 次仍无结果）: ${e.message}`;
+      retryCountEl.textContent = '';
+      console.error('[e2e-align] load failed:', e);
+    }
+  })();
+</script>
+</body>
+</html>

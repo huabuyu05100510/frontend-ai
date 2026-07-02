@@ -1,0 +1,41 @@
+{
+  "generated_at": "2026-06-16T05:16:31.662297+00:00",
+  "documents": [
+    {
+      "file": "tech1.pdf",
+      "title": "A2UI 实战（一）- 渲染器基础",
+      "series": 1,
+      "slug": "tech1",
+      "pages": 4,
+      "markdown": "markdown/tech1.md",
+      "chars": 3812
+    },
+    {
+      "file": "tech2.pdf",
+      "title": "A2UI 实战（二）- SSE、AGUI 协议与服务端搭建",
+      "series": 2,
+      "slug": "tech2",
+      "pages": 2,
+      "markdown": "markdown/tech2.md",
+      "chars": 2201
+    },
+    {
+      "file": "tech3.pdf",
+      "title": "A2UI 实战（三）- 图片理解与多轮对话",
+      "series": 3,
+      "slug": "tech3",
+      "pages": 11,
+      "markdown": "markdown/tech3.md",
+      "chars": 15453
+    },
+    {
+      "file": "tech4.pdf",
+      "title": "四、生成式 UI 与 A2UI",
+      "series": 4,
+      "slug": "tech4",
+      "pages": 22,
+      "markdown": "markdown/tech4.md",
+      "chars": 22658
+    }
+  ]
+}

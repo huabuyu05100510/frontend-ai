@@ -1,0 +1,216 @@
+/* ========================================================================
+ * 多模态 AI 渲染引擎 — 标注样式
+ * ======================================================================== */
+
+/* ---- 波浪线颜色（智检错误） ---- */
+
+.wavy-red {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #ff4d4f;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.wavy-orange {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #fa8c16;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.wavy-blue {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #1890ff;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.wavy-green {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #52c41a;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.wavy-purple {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #722ed1;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 3px;
+}
+
+.wavy-muted {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #d9d9d9;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  opacity: 0.5;
+}
+
+/* ---- 标注框 ---- */
+
+.annotation-box {
+  will-change: transform, opacity;
+  contain: layout style paint;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.annotation-box.highlight-hover {
+  opacity: 0.85;
+  filter: brightness(1.1);
+}
+
+.annotation-box.highlight-selected {
+  stroke-width: 3;
+  filter: brightness(1.2);
+}
+
+/* ---- 控制点 ---- */
+
+.resize-handle {
+  cursor: inherit;
+  transition: r 100ms ease;
+}
+
+.resize-handle:hover {
+  r: 7;
+}
+
+.resize-handle[data-dir="nw"] { cursor: nw-resize; }
+.resize-handle[data-dir="n"]  { cursor: n-resize; }
+.resize-handle[data-dir="ne"] { cursor: ne-resize; }
+.resize-handle[data-dir="e"]  { cursor: e-resize; }
+.resize-handle[data-dir="se"] { cursor: se-resize; }
+.resize-handle[data-dir="s"]  { cursor: s-resize; }
+.resize-handle[data-dir="sw"] { cursor: sw-resize; }
+.resize-handle[data-dir="w"]  { cursor: w-resize; }
+
+/* ---- 预览矩形 ---- */
+
+.preview-rect {
+  stroke-dasharray: 6 4;
+  animation: preview-dash 0.5s linear infinite;
+}
+
+@keyframes preview-dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* ---- 文字标签 ---- */
+
+.text-label {
+  font-size: 11px;
+  font-family: system-ui, sans-serif;
+  pointer-events: none;
+}
+
+/* ---- 骨架屏 ---- */
+
+.skeleton-line,
+.skeleton-canvas,
+.skeleton-image {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ---- Toast 动画 ---- */
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* ---- 可访问性 ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .annotation-box {
+    transition: none;
+    animation: none;
+  }
+
+  .annotation-box:hover {
+    transform: none;
+  }
+
+  .skeleton-line,
+  .skeleton-canvas,
+  .skeleton-image {
+    animation: none;
+  }
+
+  .preview-rect {
+    animation: none;
+  }
+
+  @keyframes toast-enter {
+    from { opacity: 1; }
+    to { opacity: 1; }
+  }
+
+  @keyframes toast-exit {
+    from { opacity: 0; }
+    to { opacity: 0; }
+  }
+}
+
+/* ---- 全局 ---- */
+
+.svg-layer {
+  overflow: visible;
+}
+
+.interaction-layer {
+  /* 透明事件接管层 */
+  background: transparent;
+}
+
+.text-layer {
+  /* 透明可复制文字层 */
+  color: transparent;
+  z-index: 2;
+}
+
+/* ---- 高对比度模式 ---- */
+
+@media (forced-colors: active) {
+  .annotation-box {
+    border: 2px solid CanvasText;
+  }
+
+  .wavy-red,
+  .wavy-orange,
+  .wavy-blue,
+  .wavy-green,
+  .wavy-purple {
+    text-decoration-color: CanvasText;
+  }
+}

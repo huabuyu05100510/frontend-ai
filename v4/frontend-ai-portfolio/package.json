@@ -1,0 +1,19 @@
+{
+  "name": "frontend-ai-portfolio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Monorepo — Orbit micro-frontend + AI multimodal render engine",
+  "scripts": {
+    "dev": "pnpm --filter @portfolio/demo dev",
+    "dev:iframe": "pnpm --filter @portfolio/iframe-demo dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  }
+}

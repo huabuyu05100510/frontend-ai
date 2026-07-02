@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>voice-kit playground</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+      .app { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      .sub { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
+      .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid #1e293b; }
+      .tab { padding: 10px 16px; cursor: pointer; border: none; background: transparent; color: #94a3b8; border-bottom: 2px solid transparent; font-size: 14px; }
+      .tab.active { color: #e2e8f0; border-bottom-color: #5B8FF9; }
+      .panel { background: #1e293b; border-radius: 8px; padding: 24px; min-height: 400px; }
+      button.primary {
+        background: #5B8FF9; color: white; border: none; padding: 8px 16px;
+        border-radius: 6px; cursor: pointer; font-size: 14px;
+      }
+      button.primary:disabled { background: #334155; cursor: not-allowed; }
+      button.danger { background: #E86452; }
+      pre { background: #0f172a; padding: 12px; border-radius: 6px; overflow: auto; font-size: 12px; margin: 12px 0; }
+      .cards { display: flex; flex-direction: column; gap: 8px; }
+      .card {
+        padding: 10px 12px; border-radius: 6px; background: #0f172a;
+        border-left: 3px solid var(--speaker-color, #5B8FF9);
+      }
+      .card .speaker { font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+      .card .text { font-size: 14px; }
+      .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; background: #334155; }
+      .status.speaking { background: #5AD8A6; color: #0f172a; }
+      .status.listening { background: #5B8FF9; color: white; }
+      .status.interrupting { background: #E86452; color: white; }
+      .row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+      .meta { font-size: 12px; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

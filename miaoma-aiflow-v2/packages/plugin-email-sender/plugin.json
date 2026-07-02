@@ -1,0 +1,89 @@
+{
+    "id": "@miaoma/email-sender",
+    "version": "1.0.0",
+    "name": "邮件发送",
+    "description": "通过平台内置 SMTP 邮件服务发送邮件，适合通知、审批结果、告警和工作流回执场景。",
+    "icon": "Mail",
+    "author": {
+        "name": "妙码学院",
+        "email": "support@miaomaedu.com",
+        "url": "https://miaomaedu.com"
+    },
+    "license": "MIT",
+    "homepage": "https://miaomaedu.com/plugins/email-sender",
+    "keywords": ["email", "notification", "smtp", "mail", "workflow"],
+    "permissions": ["email:send"],
+    "nodes": [
+        {
+            "type": "send-email",
+            "name": "发送邮件",
+            "description": "使用平台内置 SMTP 邮件服务发送邮件，可配置收件人、主题和正文内容。",
+            "icon": "Mail",
+            "color": "#DC2626",
+            "category": "communication",
+            "configSchema": {
+                "type": "object",
+                "required": ["to", "subject"],
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "title": "收件人",
+                        "description": "支持逗号、分号或换行分隔多个邮箱",
+                        "x-order": 1
+                    },
+                    "subject": {
+                        "type": "string",
+                        "title": "邮件主题",
+                        "x-order": 2
+                    },
+                    "text": {
+                        "type": "string",
+                        "title": "正文内容",
+                        "description": "纯文本正文，与 HTML 内容至少填写一个",
+                        "x-order": 3
+                    },
+                    "html": {
+                        "type": "string",
+                        "title": "HTML 内容",
+                        "description": "与纯文本至少填写一个",
+                        "x-order": 4
+                    }
+                }
+            },
+            "outputs": [
+                {
+                    "name": "delivered",
+                    "type": "boolean",
+                    "description": "邮件是否已成功提交到平台邮件服务"
+                },
+                {
+                    "name": "provider",
+                    "type": "string",
+                    "description": "邮件服务提供方标识"
+                },
+                {
+                    "name": "status",
+                    "type": "string",
+                    "description": "发送状态"
+                },
+                {
+                    "name": "to",
+                    "type": "array",
+                    "description": "实际发送的收件人列表"
+                },
+                {
+                    "name": "subject",
+                    "type": "string",
+                    "description": "邮件主题"
+                }
+            ]
+        }
+    ],
+    "main": {
+        "executor": "dist/executor.umd.js"
+    },
+    "engines": {
+        "miaoma": ">=1.0.0",
+        "node": ">=18.0.0"
+    }
+}

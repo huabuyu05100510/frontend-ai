@@ -1,0 +1,52 @@
+import { chromium } from 'playwright'
+import fs from 'node:fs'
+
+const browser = await chromium.launch()
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+const page = await ctx.newPage()
+
+fs.mkdirSync('/tmp/design-shots', { recursive: true })
+
+// QC page
+console.log('QC page...')
+await page.goto('http://localhost:5180/', { waitUntil: 'networkidle' })
+await page.waitForTimeout(2000)
+// Click on QC menu item
+const qcBtn = await page.locator('text=智检').first().or(page.locator('text=校对').first()).or(page.locator('button:has-text("智检")').first())
+if (await qcBtn.count() > 0) {
+  await qcBtn.first().click()
+  await page.waitForTimeout(1500)
+}
+await page.screenshot({ path: '/tmp/design-shots/01-qc-page.png', fullPage: false })
+
+// OCR page (recognize mode by default)
+console.log('OCR recognize mode...')
+await page.goto('http://localhost:5180/', { waitUntil: 'networkidle' })
+await page.waitForTimeout(1000)
+const ocrBtn = await page.locator('text=OCR').first().or(page.locator('button:has-text("OCR")').first())
+if (await ocrBtn.count() > 0) {
+  await ocrBtn.first().click()
+  await page.waitForTimeout(1500)
+}
+await page.screenshot({ path: '/tmp/design-shots/02-ocr-recognize.png', fullPage: false })
+
+// Switch to template-edit
+console.log('OCR template-edit...')
+const editBtn = await page.locator('text=模板编辑').first()
+if (await editBtn.count() > 0) {
+  await editBtn.first().click()
+  await page.waitForTimeout(1500)
+}
+await page.screenshot({ path: '/tmp/design-shots/03-ocr-template-edit.png', fullPage: false })
+
+// Switch to template-manage
+console.log('OCR template-manage...')
+const manageBtn = await page.locator('text=模板管理').first()
+if (await manageBtn.count() > 0) {
+  await manageBtn.first().click()
+  await page.waitForTimeout(1500)
+}
+await page.screenshot({ path: '/tmp/design-shots/04-ocr-template-manage.png', fullPage: false })
+
+await browser.close()
+console.log('Done. Screenshots in /tmp/design-shots/')

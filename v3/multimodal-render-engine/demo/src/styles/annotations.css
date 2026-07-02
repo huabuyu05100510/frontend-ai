@@ -1,0 +1,81 @@
+/* ──────────────────── Wavy underlines ──────────────────── */
+.wavy-red    { text-decoration: underline wavy #ff4d4f 1.5px; }
+.wavy-orange { text-decoration: underline wavy #fa8c16 1.5px; }
+.wavy-blue   { text-decoration: underline wavy #1890ff 1.5px; }
+.wavy-green  { text-decoration: underline wavy #52c41a 1.5px; }
+.wavy-purple { text-decoration: underline wavy #722ed1 1.5px; }
+.wavy-muted  { text-decoration: underline wavy #d9d9d9 1.5px; opacity: 0.5; }
+
+/* ──────────────────── Annotation boxes ──────────────────── */
+.annotation-box {
+  will-change: transform, opacity;
+  contain: layout style paint;
+  transition: opacity 0.15s;
+}
+
+.highlight-hover .annotation-box,
+.highlight-hover .wavy-path {
+  filter: brightness(0.85);
+  opacity: 0.9;
+}
+
+.highlight-selected .annotation-box {
+  stroke-width: 2.5px !important;
+}
+
+/* ──────────────────── Resize handles ──────────────────── */
+.resize-handle {
+  will-change: transform;
+  transition: r 0.1s;
+}
+.resize-handle[data-dir="nw"] { cursor: nw-resize; }
+.resize-handle[data-dir="n"]  { cursor: n-resize; }
+.resize-handle[data-dir="ne"] { cursor: ne-resize; }
+.resize-handle[data-dir="e"]  { cursor: e-resize; }
+.resize-handle[data-dir="se"] { cursor: se-resize; }
+.resize-handle[data-dir="s"]  { cursor: s-resize; }
+.resize-handle[data-dir="sw"] { cursor: sw-resize; }
+.resize-handle[data-dir="w"]  { cursor: w-resize; }
+
+/* ──────────────────── Preview rect ──────────────────── */
+.preview-rect {
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* ──────────────────── Text label ──────────────────── */
+.text-label {
+  font-size: 10px;
+  font-family: sans-serif;
+  pointer-events: none;
+  user-select: none;
+  will-change: transform, opacity;
+  contain: layout style paint;
+}
+
+/* ──────────────────── Wavy path group ──────────────────── */
+.wavy-path {
+  pointer-events: none;
+  will-change: transform, opacity;
+  contain: layout style paint;
+}
+
+/* ──────────────────── ProseMirror editor ──────────────────── */
+.ProseMirror {
+  outline: none;
+  padding: 16px 20px;
+  min-height: 200px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: #262626;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+.ProseMirror p {
+  margin: 0 0 8px 0;
+}
+
+/* ──────────────────── Global resets ──────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
