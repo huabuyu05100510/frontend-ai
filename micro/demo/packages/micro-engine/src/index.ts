@@ -21,6 +21,11 @@ import { injectSdk } from './SdkInjector'
 import { createRouterBridge } from './RouterBridge'
 import { Scheduler } from './Scheduler'
 import { installSandboxCore, nextMicrotask } from './SandboxCore'
+import {
+  createHostElement,
+  installWujiePatches,
+  uninstallWujiePatches,
+} from './WujieSandbox'
 import type {
   AppManifest,
   ParseContext,
@@ -30,6 +35,7 @@ import type {
   SandboxInstance,
   SandboxMetrics,
   SandboxOptions,
+  WujieContext,
 } from './types'
 
 export function createSandbox(options: SandboxOptions): SandboxInstance {
@@ -65,6 +71,58 @@ export function createSandbox(options: SandboxOptions): SandboxInstance {
   let routeSyncCount = 0
   let routeLoopBlocked = 0
   let activateCount = 0
+
+  // ModelScope 风格：postMessage 协议 + WeakMap<contentWindow, iframe> 反查
+  // 子应用 producer 端（由 SdkInjector 注入 __SANDBOX__.reportHeight）调用
+  // parent.postMessage({type:'sandbox:height', height}) → 这里查回 iframe 设高
+  const winToIframe = new WeakMap<WindowProxy, HTMLIFrameElement>()
+  // 每个 iframe 的上次上报值，过滤抖动（Math.ceil + 1px 阈值）
+  const lastReport = new WeakMap<HTMLIFrameElement, number>()
+  // RAF + 100ms 节流：高频 resize 合并到一帧
+  const pendingRaf = new WeakMap<HTMLIFrameElement, number>()
+  const lastReportTime = new WeakMap<HTMLIFrameElement, number>()
+
+  function handleMessage(ev: MessageEvent) {
+    const data = ev.data
+    if (!data || typeof data !== 'object') return
+    if (data.type !== 'sandbox:height') return
+    if (typeof data.height !== 'number' || !isFinite(data.height) || data.height <= 0) return
+    const iframe = winToIframe.get(ev.source as WindowProxy)
+    if (!iframe) return
+
+    const target = iframe
+    const h = Math.ceil(data.height)
+    // 抖动过滤：与上次差 ≤1px 不更新（避免 sub-pixel 抖动触发 reflow）
+    const last = lastReport.get(target) ?? -1
+    if (Math.abs(h - last) <= 1) return
+
+    const now = Date.now()
+    const lastT = lastReportTime.get(target) ?? 0
+    // 节流：100ms 内的多次上报合并，用 RAF 兜底保证渲染前生效
+    if (now - lastT < 100) {
+      if (!pendingRaf.has(target)) {
+        pendingRaf.set(
+          target,
+          requestAnimationFrame(() => {
+            pendingRaf.delete(target)
+            applyHeight(target, h)
+          }),
+        )
+      }
+      return
+    }
+    applyHeight(target, h)
+  }
+  function applyHeight(iframe: HTMLIFrameElement, h: number) {
+    iframe.style.height = h + 'px'
+    iframe.style.minHeight = ''  // 撤掉兜底，让 iframe 收缩到内容
+    lastReport.set(iframe, h)
+    lastReportTime.set(iframe, Date.now())
+    const cur = lifecycle.current()
+    const appName = cur && (lifecycle as any).alive.get(cur)?.iframe === iframe ? cur : null
+    listeners.dispatch('height:sync', { appName, height: h })
+  }
+  window.addEventListener('message', handleMessage)
 
   // RouterBridge：主子双向同步
   const router = createRouterBridge({
@@ -122,6 +180,8 @@ export function createSandbox(options: SandboxOptions): SandboxInstance {
     iframe.style.display = 'block'
     iframe.style.visibility = 'visible'
     iframe.style.left = '0'
+    // 注册到 WeakMap，postMessage 高度上报时反查 iframe
+    if (iframe.contentWindow) winToIframe.set(iframe.contentWindow, iframe)
     listeners.dispatch('pool:acquire', {
       fromPool: pool.metrics().totalReused > 0,
       poolSize: pool.metrics().size,
@@ -169,6 +229,7 @@ export function createSandbox(options: SandboxOptions): SandboxInstance {
       user: options.user,
       abConfig: options.abConfig,
       rum,
+      mode: app.mode ?? 'iframe-sandbox',
     }
 
     const result = await loader.load(app.entryUrl, ctx)
@@ -176,6 +237,25 @@ export function createSandbox(options: SandboxOptions): SandboxInstance {
       boundary.handle({ app, err: result.error, iframe })
       listeners.dispatch('activate:fallback', { appName, error: result.error.message })
       return
+    }
+
+    // Wujie 模式：创建主文档 host + 注入 patch 脚本（先于 SdkInjector，先于子应用脚本）
+    let wujieCtx: WujieContext | null = null
+    if (ctx.mode === 'wujie') {
+      const host = createHostElement({ appName, container })
+      wujieCtx = {
+        appName,
+        hostElement: host,
+        hostKey: `__WUJIE_HOST__${appName}`,
+      }
+      // 在父 window 上挂 host 引用，patch 脚本通过 parent[hostKey] 取
+      ;(window as unknown as Record<string, unknown>)[wujieCtx.hostKey] = host
+      try {
+        installWujiePatches(result.dom, wujieCtx)
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err))
+        rum.error(e, { phase: 'installWujiePatches', appName })
+      }
     }
 
     // SdkInjector 默认走 beforeParse hook（如果调用方没自定义）
@@ -187,6 +267,20 @@ export function createSandbox(options: SandboxOptions): SandboxInstance {
     }
 
     loader.inject(iframe, result.dom, ctx)
+
+    // Wujie 模式：iframe 隐藏（保留 rAF，不暂停脚本；display:none 会暂停 rAF）
+    if (ctx.mode === 'wujie') {
+      Object.assign(iframe.style, {
+        position: 'absolute',
+        left: '0',
+        top: '0',
+        width: '0',
+        height: '0',
+        visibility: 'hidden',
+        pointerEvents: 'none',
+        overflow: 'hidden',
+      })
+    }
 
     // SandboxCore：history 劫持 + 容器修正（仅同源）
     const detachCore = installSandboxCore({
@@ -205,8 +299,13 @@ export function createSandbox(options: SandboxOptions): SandboxInstance {
     // lifecycle.mount 会 hide 旧的、显示新的
     lifecycle.mount(appName, iframe)
 
-    // 把卸载回调挂到 entry 上（用闭包持有 detachCore）
-    ;(lifecycle as any).alive.get(appName).__detach = detachCore
+    // 把卸载回调挂到 entry 上（用闭包持有 detachCore + wujie host 清理）
+    ;(lifecycle as any).alive.get(appName).__detach = () => {
+      detachCore()
+      if (wujieCtx) {
+        try { uninstallWujiePatches(wujieCtx) } catch (_) {}
+      }
+    }
 
     listeners.dispatch('activate:success', { appName, reused: false })
     rum.metric('activate.first', 1)
@@ -223,6 +322,7 @@ export function createSandbox(options: SandboxOptions): SandboxInstance {
     lifecycle.clear()
     pool.drain()
     router.detach()
+    window.removeEventListener('message', handleMessage)
   }
 
   function metrics(): SandboxMetrics {

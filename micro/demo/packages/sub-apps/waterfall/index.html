@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>瀑布流虚拟列表</title>
+  <link rel="icon" type="image/svg+xml" href="/waterfall/favicon.svg">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{height:auto}
+    body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5f5f5;color:#1f2329;min-height:100vh}
+
+    /* 顶栏 — sticky 在 body 顶部，跟随 body 滚动时吸顶 */
+    .topbar{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid #e5e6eb;display:flex;align-items:center;padding:0 16px;height:44px;gap:12px}
+    .topbar .logo{font-weight:700;font-size:16px;color:#fe2c55;white-space:nowrap}
+    .topbar .tabs{display:flex;gap:0;flex:1;justify-content:center}
+    .topbar .tab{padding:10px 14px;font-size:14px;color:#666;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+    .topbar .tab.on{color:#1f2329;font-weight:600;border-bottom-color:#fe2c55}
+    .topbar .meta{font-size:12px;color:#999;white-space:nowrap}
+    .topbar .perf{font-size:11px;color:#999;white-space:nowrap;font-family:monospace}
+
+    /* 滚动容器 — body 级滚动（content-driven，由父 iframe 撑高） */
+
+    /* 瀑布流容器 — WaterfallEngine 的 container (position:relative) */
+    .wf-container{position:relative;margin:0 auto;padding:8px;contain:layout style}
+
+    /* 卡片（position:absolute 由引擎管理 top/left）。
+       content-visibility:auto + contain-intrinsic-size —— 浏览器原生虚拟列表：
+       视口外卡片跳过 layout/paint/style，仅按 contain-intrinsic-size 占位；
+       进入视口时浏览器自动 layout 得到真实高度（通过 RO 回传 LayoutEngine 重排）。
+       'auto <h>' 让浏览器记忆卡片上次渲染高度，下次进入视口前用记忆值占位（更准）。 */
+    .card{border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);transition:transform .12s ease;contain:layout style paint;content-visibility:auto;contain-intrinsic-size:auto 240px}
+    .card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.12)}
+    .card .img{width:100%;display:block;background:linear-gradient(135deg,#e8e8e8,#d0d0d0);object-fit:cover}
+    .card .img.is-skeleton{animation:shimmer 1.2s ease infinite;background:linear-gradient(90deg,#eee 25%,#f5f5f5 37%,#eee 63%);background-size:400% 100%}
+    @keyframes shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+    .card .body{padding:8px 10px}
+    .card .title{font-size:13px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin-bottom:6px}
+    .card .footer{display:flex;align-items:center;gap:6px;font-size:11px;color:#999}
+    .card .avatar{width:20px;height:20px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#fff;overflow:hidden}
+    .card .author{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .card .likes{flex-shrink:0;white-space:nowrap}
+
+    /* 底部 loader */
+    .bottom-loader{display:flex;align-items:center;justify-content:center;padding:16px;gap:8px;color:#999;font-size:13px}
+    .bottom-loader .dot{width:6px;height:6px;border-radius:50%;background:#ccc;animation:bl .6s ease infinite alternate}
+    .bottom-loader .dot:nth-child(2){animation-delay:.2s}
+    .bottom-loader .dot:nth-child(3){animation-delay:.4s}
+    @keyframes bl{to{transform:translateY(-6px);background:#fe2c55}}
+    .bottom-loader.done{color:#bbb}
+    .empty{margin-top:120px;text-align:center;color:#bbb;font-size:14px}
+
+    /* 回到顶部 */
+    .btn-top{position:fixed;right:16px;bottom:80px;width:40px;height:40px;border-radius:50%;background:#fff;border:1px solid #e5e6eb;box-shadow:0 2px 8px rgba(0,0,0,.1);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:18px;z-index:20}
+    .btn-top.show{display:flex}
+  </style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div class="topbar">
+  <div class="logo">瀑布流 · 虚拟列表</div>
+  <div class="tabs" id="tabs">
+    <div class="tab on" data-cat="">推荐</div>
+    <div class="tab" data-cat="穿搭">穿搭</div>
+    <div class="tab" data-cat="美食">美食</div>
+    <div class="tab" data-cat="旅行">旅行</div>
+  </div>
+  <div class="meta">共 <span id="total-count">0</span> 条</div>
+  <div class="perf" id="perf-info">render: --ms | DOM: 0</div>
+</div>
+
+<!-- 瀑布流容器（WaterfallEngine.container，body 级滚动） -->
+<div class="wf-container" id="wf-container"></div>
+<div class="bottom-loader" id="bottom-loader">
+  <span>加载中</span><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+</div>
+<div class="empty" id="empty" style="display:none">— 已加载全部内容 —</div>
+
+<div class="btn-top" id="btn-top" title="回到顶部">↑</div>
+
+<!-- WaterfallEngine 核心引擎 -->
+<script src="/waterfall/waterfall-engine.js"></script>
+
+<script>
+/* ================================================================
+ * 消费方：调用 WaterfallEngine，实现小红书风格瀑布流
+ *
+ * 本文件演示 WaterfallEngine 的完整用法：
+ *   - itemRenderer / itemUpdater 自定义卡片
+ *   - 数据源（mock API 分页）
+ *   - tab 切换（setItems）
+ *   - 性能面板
+ * ================================================================ */
+
+// ── 数据源（mock） ──
+let sourceSeed = 1
+function sr() { const x = Math.sin(sourceSeed++) * 10000; return x - Math.floor(x) }
+
+const TITLES = [
+  '奶油风客厅改造，氛围感拉满','今日份ootd·早秋通勤穿搭','藏在巷子里的宝藏咖啡馆',
+  '川西自驾·每一帧都是壁纸','新手也能做的提拉米苏','日系短发·圆脸友好',
+  '周末citywalk·上海愚园路','租房改造·15平米小窝大变身','MacBook桌面好物分享',
+  '青岛看海攻略·三天两夜','显瘦穿搭·梨型身材福音','胶片感调色参数分享',
+  '低成本养花·阳台小花园','杭州灵隐寺·清晨无人','懒人减脂餐·一周不重样',
+  '秋冬口红试色合集','书桌改造·治愈系工作台','大理旅居一个月花了多少',
+  '瑜伽入门·零基础跟练','手机拍出单反质感·参数分享','便利店调酒·5款微醺配方',
+  '周末brunch·法式吐司','厦门鼓浪屿·避开人潮路线','卧室氛围灯布置灵感',
+  '早八通勤妆·5分钟搞定','重庆火锅必吃榜·本地人推荐','手写手账入门指南',
+  '极简衣橱·胶囊衣橱法则','京都红叶季·最美寺院榜单','阳台种菜·新手入门',
+  '双肩包测评·通勤百搭款','南京梧桐大道·最美季节','一人食·快手晚餐合集',
+  '北欧风花瓶摆件种草','深圳周末去哪玩','空气炸锅食谱·懒人必备',
+  '显高穿搭·小个子女生','新疆自驾·独库公路','猫砂测评·养猫两年总结',
+  '低成本改造出租屋厨房','无印良品平替清单','腾冲泡温泉·小众路线',
+]
+const AUTHORS = ['一只小团子','穿搭研究员','咖啡地图','旅行阿毛','厨房小白','日系少女','城市漫游指南','改造达人','数码好物','看海日记']
+const AVATAR_COLORS = ['#fe2c55','#2563eb','#16a34a','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316']
+
+// 真实图片：picsum.photos 按 seed 锁定图（同一 idx 永远同一张图，便于虚拟列表复用缓存）
+// 高度 h 直接传给服务端裁剪 → 拿到的图就是目标尺寸，无 layout shift
+function realImage(h, idx) {
+  return `https://picsum.photos/seed/wf-${idx}/400/${h}`
+}
+
+const TOTAL = 200
+const PAGE_SIZE = 20
+
+let curCategory = ''   // '' 表示全部
+
+function generateItem(idx) {
+  const r = () => sr()
+  const imgH = Math.round(160 + r() * 200)  // 图片高度 160~360px
+  const titleLines = r() < 0.25 ? 1 : (r() < 0.7 ? 2 : 3)
+  // CSS .title 有 -webkit-line-clamp:2 → 实际最多 2 行；行高 1.4 * 13px = 18.2px
+  // body = padding-top(8) + title(18.2*lines) + margin-bottom(6) + footer(20) + padding-bottom(8) = 42 + 18.2*lines
+  const visibleLines = Math.min(titleLines, 2)
+  const estHeight = imgH + Math.round(visibleLines * 18.2) + 42
+
+  // 随机分配分类
+  const cats = ['穿搭', '美食', '旅行']
+  const cat = cats[Math.floor(r() * cats.length)]
+
+  return {
+    id: 'wf-' + idx,
+    idx,
+    imgUrl: realImage(imgH, idx),   // 真实图片（picsum.photos 按 seed 锁定）
+    imgH,
+    title: TITLES[Math.floor(r() * TITLES.length)],
+    author: AUTHORS[Math.floor(r() * AUTHORS.length)],
+    avatarColor: AVATAR_COLORS[Math.floor(r() * AVATAR_COLORS.length)],
+    likes: Math.floor(r() * 9990 + 10),
+    category: cat,
+    estHeight,
+  }
+}
+
+function fetchPage({ offset, limit, category }) {
+  // 模拟异步网络请求
+  // 即使有 category 过滤，也按"原数据 idx 累加"推进 offset（不依赖返回值长度）
+  // 这样可以保证 offset 最终一定 >= TOTAL 触发 done
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const items = []
+      for (let i = 0; i < limit && offset + i < TOTAL; i++) {
+        const item = generateItem(offset + i)
+        if (category && item.category !== category) continue
+        items.push(item)
+      }
+      resolve(items)
+    }, 300 + Math.random() * 200)
+  })
+}
+
+// ── 项渲染器 ──
+
+/**
+ * itemRenderer — 创建空壳卡片 DOM
+ * WaterfallEngine 在需要新节点时调用，返回一个空模板
+ */
+function itemRenderer() {
+  const card = document.createElement('div')
+  card.className = 'card'
+
+  const img = document.createElement('img')
+  img.className = 'img is-skeleton'
+  img.alt = ''
+
+  const title = document.createElement('div')
+  title.className = 'title'
+
+  const avt = document.createElement('div')
+  avt.className = 'avatar'
+
+  const authorSpan = document.createElement('span')
+  authorSpan.className = 'author'
+
+  const likesSpan = document.createElement('span')
+  likesSpan.className = 'likes'
+
+  const footer = document.createElement('div')
+  footer.className = 'footer'
+  footer.appendChild(avt)
+  footer.appendChild(authorSpan)
+  footer.appendChild(likesSpan)
+
+  const body = document.createElement('div')
+  body.className = 'body'
+  body.appendChild(title)
+  body.appendChild(footer)
+
+  card.appendChild(img)
+  card.appendChild(body)
+  return card
+}
+
+/**
+ * itemUpdater — 将数据填充到已有卡片
+ */
+function itemUpdater(el, item) {
+  if (!item || !item.id) return
+
+  const img = el.querySelector('.img')
+  const title = el.querySelector('.title')
+  const avt = el.querySelector('.avatar')
+  const author = el.querySelector('.author')
+  const likes = el.querySelector('.likes')
+
+  if (img) {
+    // 真实网络图：换 src 时重置骨架，等 onload 才去掉（picsum.photos 会 302 到 CDN）
+    if (img.src !== item.imgUrl) {
+      img.classList.add('is-skeleton')
+      img.onload = () => img.classList.remove('is-skeleton')
+      img.onerror = () => img.classList.remove('is-skeleton')
+      img.src = item.imgUrl
+    }
+    img.style.height = item.imgH + 'px'
+  }
+  if (title) title.textContent = item.title
+  if (avt) { avt.style.background = item.avatarColor; avt.textContent = item.author[0] }
+  if (author) author.textContent = item.author
+  if (likes) likes.textContent = item.likes >= 1000 ? '❤ ' + (item.likes / 1000).toFixed(1) + 'k' : '❤ ' + item.likes
+}
+
+// ── 引擎初始化 ──
+const engine = new WaterfallEngine({
+  container: document.getElementById('wf-container'),
+  columnCount: 2,
+  gap: 8,
+  overscan: 600,
+  estimatedItemHeight: 300,
+  loadMoreThreshold: 600,
+  itemRenderer,
+  itemUpdater,
+  onLoadMore: loadMore,
+  onRender: (info) => {
+    document.getElementById('perf-info').textContent =
+      `render: ${info.renderTime.toFixed(1)}ms | DOM: ${info.poolActive}/${info.total}`
+    document.getElementById('total-count').textContent = info.total
+  },
+})
+
+// ── 调试用：暴露引擎到 window（生产环境去掉） ──
+window.__engine = engine
+window.__engineInspect = () => ({
+  columnCount: engine.columnCount,
+  containerWidth: engine._layoutEngine.containerWidth,
+  columnWidth: engine._layoutEngine.columnWidth,
+  colHeights: [...engine._layoutEngine._colHeights],
+  colItems: engine._layoutEngine._colItems.map(c => [...c]),
+  layout: engine._layoutEngine._layout.map((l, i) => l ? { idx: i, ...l } : null),
+})
+
+// ── 加载更多 ──
+let offset = 0
+
+async function loadMore() {
+  if (offset >= TOTAL) {
+    engine.setDone()
+    document.getElementById('bottom-loader').style.display = 'none'
+    document.getElementById('empty').style.display = 'block'
+    return
+  }
+
+  // 显示 loader
+  const loader = document.getElementById('bottom-loader')
+  loader.style.display = 'flex'
+  document.getElementById('empty').style.display = 'none'
+
+  const items = await fetchPage({ offset, limit: PAGE_SIZE, category: curCategory })
+  offset += PAGE_SIZE
+
+  // 加载完成 → 隐藏 loader
+  loader.style.display = 'none'
+
+  if (items.length === 0) {
+    engine.setDone()
+    document.getElementById('empty').style.display = 'block'
+    return
+  }
+
+  engine.appendItems(items)
+}
+
+// ── Tab 切换 ──
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab')
+  if (!tab) return
+
+  document.querySelectorAll('.tab').forEach((t) => t.classList.remove('on'))
+  tab.classList.add('on')
+
+  const newCat = tab.dataset.cat || ''
+  if (newCat !== curCategory) {
+    curCategory = newCat
+    offset = 0
+    document.getElementById('bottom-loader').style.display = 'flex'
+    document.getElementById('empty').style.display = 'none'
+    // WaterfallEngine.setItems([]) 重置引擎 + 重新加载
+    engine.setItems([])
+    // 重置后立即触发首屏加载
+    offset = 0
+    loadMore()
+  }
+})
+
+// ── 回到顶部（body 级滚动） ──
+const btnTop = document.getElementById('btn-top')
+window.addEventListener('scroll', () => {
+  btnTop.classList.toggle('show', (window.scrollY || 0) > 600)
+}, { passive: true })
+btnTop.addEventListener('click', () => {
+  engine.scrollToItem('wf-0', 'start')
+})
+
+// ── 首屏加载 ──
+loadMore()
+</script>
+</body>
+</html>

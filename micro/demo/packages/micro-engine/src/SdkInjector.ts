@@ -41,6 +41,75 @@ export function injectSdk(dom: Document, ctx: ParseContext): void {
   `
   head.insertBefore(rum, head.firstChild)
 
+  // 2. ModelScope 风格高度上报桥：__SANDBOX__.reportHeight(h) → parent.postMessage
+  //    配合 auto-measure 片段：DOMContentLoaded + ResizeObserver 自动量 body 高度上报
+  //    引擎端（index.ts）有 WeakMap<contentWindow,iframe> 反查 + RAF+100ms 节流 + ceil+1px 抖动过滤
+  //
+  //    wujie 模式跳过此段：iframe 隐藏（visibility:hidden + 0 尺寸），body 永远空，
+  //    measure 上报会误导引擎把 iframe 设成 0 高。wujie 模式下子应用 DOM 在主文档，
+  //    高度由主文档自然决定，不需要同步。
+  if (ctx.mode !== 'wujie') {
+    const height = dom.createElement('script')
+    height.textContent = `
+      (function(){
+        var throttle = 0, lastH = 0, raf = 0;
+        window.__SANDBOX__ = window.__SANDBOX__ || {};
+        window.__SANDBOX__.reportHeight = function(h){
+          h = Math.max(0, h|0);
+          if (Math.abs(h - lastH) <= 1) return;            // 抖动过滤
+          lastH = h;
+          var now = Date.now();
+          if (now - throttle < 100) {                       // 100ms 节流
+            if (!raf) raf = requestAnimationFrame(function(){
+              raf = 0; post(h);
+            });
+            return;
+          }
+          post(h);
+        };
+        function post(h){
+          throttle = Date.now();
+          try { parent.postMessage({type:'sandbox:height', height: h}, '*'); }catch(_){}
+        }
+        function measure(){
+          var b = document.body;
+          if (!b) return;
+          // ⚠️ 只读 body.scrollHeight：documentElement.scrollHeight 在 iframe 有 min-height 时
+          //   返回的是 iframe 视口高（min-height 兜底值）而非内容高 → 会把 iframe 锁死在 min-height
+          var h = b.scrollHeight;
+          if (h > 0) window.__SANDBOX__.reportHeight(h);
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', measure);
+        } else { measure(); }
+        window.addEventListener('load', measure);
+        // body 高度变化监测：
+        //   1) ResizeObserver 监听当前 body（图片懒加载/异步渲染触发）
+        //   2) MutationObserver 监听 documentElement 子树 —— Gradio/SvelteKit hydration 会整个替换 body，
+        //      老 body 上的 RO 失效，必须检测替换后重新挂 RO
+        //   3) 1s 定时轮询兜底（防 RO/MO 在极端情况下漏触发）
+        var ro = null;
+        function attachRO(){
+          if (!document.body) return;
+          if (ro) { try { ro.disconnect(); } catch(_){} }
+          if (typeof ResizeObserver !== 'undefined') {
+            ro = new ResizeObserver(function(){ measure(); });
+            ro.observe(document.body);
+          }
+        }
+        attachRO();
+        document.addEventListener('DOMContentLoaded', attachRO);
+        if (typeof MutationObserver !== 'undefined') {
+          new MutationObserver(function(){ attachRO(); measure(); }).observe(document.documentElement, { childList: true, subtree: false });
+        }
+        setInterval(measure, 1000);
+      })();
+    `
+    // 注意：rum 必须保持是 head 的第一个 script（SandboxCore 测试断言 firstChild.textContent），
+    // 所以 height 插到 rum 之后而非之前
+    head.insertBefore(height, rum.nextSibling)
+  }
+
   // 2. A+ SDK（mock url，生产是集团统一 CDN）
   const aplus = dom.createElement('script')
   aplus.src = '/mock-internal-sdk/aplus.js'

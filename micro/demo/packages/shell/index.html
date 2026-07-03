@@ -9,19 +9,24 @@
 <!-- 关键 CSS 内联 <1KB：FCP/LCP 触发元素 -->
 <style>
 *{margin:0;box-sizing:border-box}
-html,body{height:100%}
-body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5f6f8;color:#1f2329;display:flex;flex-direction:column}
-/* 顶导 */
-.hd{height:52px;background:#001b32;color:#fff;display:flex;align-items:center;padding:0 20px;flex-shrink:0}
+html{height:auto}
+body{min-height:100vh}
+body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5f6f8;color:#1f2329;padding-top:52px}
+/* 顶导 — 固定在顶部，不随内容滚动 */
+.hd{height:52px;background:#001b32;color:#fff;display:flex;align-items:center;padding:0 20px;position:fixed;top:0;left:0;right:0;z-index:20;flex-shrink:0}
 .logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px}
 .logo .dot{width:22px;height:22px;border-radius:5px;background:linear-gradient(135deg,#7c3aed,#2563eb)}
 .crumb{margin-left:28px;font-size:13px;color:#a9b7c9}
 .crumb b{color:#fff;font-weight:500;margin-left:6px}
 .hd .u{margin-left:auto;font-size:13px;color:#cfd8e3;display:flex;align-items:center;gap:8px}
 .hd .u .av{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#fff}
-/* 主体 = 侧栏 + 内容 */
-.main{flex:1;display:flex;min-height:0}
-.side{width:208px;background:#00243f;color:#cfd8e3;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+/* 主体 = 侧栏 + 内容。
+   不再用 body flex column + .main flex:1（会把 .main 锁死在 viewport-52px，
+   iframe 流式高度只能 overflow 出去，撑不开布局 → footer 永远吸在 viewport 底）。
+   footer 走 natural flow：永远紧跟 frame-wrap 之后，不吸底（避免高 footer 遮挡内容）。
+   内容不足一屏时 footer 下方留白，超出一屏时 footer 跟随 body 滚动。 */
+.main{display:flex;min-height:calc(100vh - 52px)}
+.side{width:208px;background:#00243f;color:#cfd8e3;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;position:sticky;top:52px;max-height:calc(100vh - 52px);align-self:flex-start}
 .side .grp{padding:8px 0;border-top:1px solid rgba(255,255,255,.06)}
 .side .grp:first-child{border-top:0}
 .side .gtitle{padding:8px 18px;font-size:11px;color:#6b7c8f;letter-spacing:1px;text-transform:uppercase}
@@ -32,7 +37,8 @@ body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5
 .side a .badge{margin-left:auto;font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(59,130,246,.3);color:#bfdbfe}
 .side a .badge.ext{background:rgba(249,115,22,.25);color:#fed7aa}
 .side a .badge.mock{background:rgba(34,197,94,.25);color:#bbf7d0}
-/* 内容区 */
+/* 内容区 — flex column 让 ctbar/frame-wrap/footer 垂直堆叠；
+   不加 min-height（不让 .ct 强制占满 viewport），footer 高时不会挤压可视区 */
 .ct{flex:1;display:flex;flex-direction:column;min-width:0}
 .ctbar{height:40px;background:#fff;border-bottom:1px solid #e5e6eb;display:flex;align-items:center;padding:0 16px;gap:8px;flex-shrink:0}
 .ctbar .t{font-size:14px;font-weight:500}
@@ -42,7 +48,11 @@ body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5
 .ctbar .perf-btn{padding:5px 12px;font-size:12px;border:1px solid #2563eb;background:#eff6ff;color:#2563eb;border-radius:6px;cursor:pointer;margin-left:8px}
 .ctbar .perf-btn:hover{background:#dbeafe}
 .ctbar .perf-btn:disabled{opacity:.5;cursor:not-allowed}
-.frame-wrap{flex:1;position:relative;background:#fff;min-height:0}
+/* frame-wrap 用 block（不是 flex column）—— iframe 是 replaced element，
+   在 flex column 里 min-content size=0 会让 flex item 把 sandbox 压缩，iframe 撑不开 sandbox。
+   改 block 后 iframe 直接撑开 sandbox → frame-wrap → .ct → body。
+   不足一屏时 .ct 的 min-height + footer margin-top:auto 兜底吸底。 */
+.frame-wrap{position:relative;background:#fff;display:block}
 /* 性能对比浮层 */
 .perf-mask{position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:5;display:none;align-items:center;justify-content:center}
 .perf-mask.show{display:flex}
@@ -64,8 +74,8 @@ body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5
 .perf-speedup{text-align:right;font-weight:600;color:#16a34a;font-family:monospace}
 .perf-speedup.slow{color:#ef4444}
 .perf-foot{padding:10px 18px;border-top:1px solid #e5e6eb;font-size:11px;color:#86909c;line-height:1.6;background:#fafbfc;border-radius:0 0 10px 10px}
-.frame-wrap iframe{width:100%;height:100%;border:0;background:#fff}
-/* 列表视图（嵌入到内容区） */
+.frame-wrap iframe{width:100%;height:auto;display:block;border:0;background:#fff}
+/* 列表视图（嵌入到内容区）— 填满 frame-wrap，内部滚动 */
 .list-view{flex:1;overflow:auto;padding:20px 24px}
 .cat-bar{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
 .cat{padding:5px 14px;border-radius:14px;font-size:12px;background:#fff;border:1px solid #e5e6eb;color:#4e5969;cursor:pointer}
@@ -85,6 +95,22 @@ body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5
 .dash{position:fixed;right:12px;bottom:12px;background:#fff;border:1px solid #ddd;padding:8px;border-radius:6px;font-size:11px;font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,.08);max-width:300px;z-index:30}
 .dash h4{font-size:11px;margin-bottom:4px;color:#666}
 .dash div{line-height:1.5}
+/* ───── 沙箱区域 + 门户式 sticky footer ───── */
+#sandbox{position:relative;width:100%;min-height:600px}
+#sb-skel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#86909c;font-size:13px;background:linear-gradient(105deg,#f5f6f8 30%,#eef0f3 50%,#f5f6f8 70%);background-size:200% 100%;animation:sb-shimmer 1.4s linear infinite;z-index:1}
+@keyframes sb-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+#sandbox.ready{min-height:0}
+#sandbox.fixed{min-height:600px}
+/* sticky footer：.ct 是 flex column 且 min-height 撑满 viewport-52px。
+   margin-top:auto 让 footer 在内容不足一屏时吸底（与侧栏底部对齐）；
+   内容超出一屏时 .ct 撑开 → margin-top:auto 退化为 0 → footer 紧跟 frame-wrap 之后随 body 滚动。
+   高 footer 也不会遮挡：margin-top 只填空白不重叠。 */
+.stream-footer{background:#001b32;color:#a9b7c9;padding:18px 24px;font-size:12px;line-height:1.7;margin-top:auto;flex-shrink:0}
+.stream-footer .ft-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.stream-footer .ft-links{display:flex;gap:14px}
+.stream-footer a{color:#a9b7c9;text-decoration:none;cursor:pointer}
+.stream-footer a:hover{color:#fff}
+.stream-footer .ft-copy{color:#6b7c8f;font-size:11px}
 </style>
 </head>
 <body>
@@ -110,7 +136,7 @@ body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5
         <div class="grid" id="grid"></div>
       </section>
       <!-- iframe 由沙箱引擎注入到这里 -->
-      <div id="sandbox" style="position:absolute;inset:0;display:none"></div>
+      <div id="sandbox" style="position:relative;display:none"></div>
       <!-- 性能对比浮层 -->
       <div class="perf-mask" id="perf-mask">
         <div class="perf-panel">
@@ -125,11 +151,17 @@ body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#f5
         </div>
       </div>
     </div>
+    <!-- 门户式 footer：作为 content 一部分，由沙箱引擎加载独立子应用 iframe。
+         min-height:44px 预占位消除 CLS（footer iframe 加载前避免布局抖动）。
+         margin-top:auto 让内容不足一屏时吸底（与侧栏底对齐）；超出时随 body 滚动。 -->
+    <footer class="stream-footer" id="stream-footer">
+      <div id="footer-sandbox" style="position:relative;min-height:44px;display:block"></div>
+    </footer>
   </main>
 </div>
 
 <aside class="dash" id="dash">
-  <h4>Sandbox Metrics</h4>
+  <h4>Sandbox Metrics · CLS <span id="cls-val" style="font-weight:600">0.0000</span></h4>
   <div id="dash-body">loading…</div>
 </aside>
 

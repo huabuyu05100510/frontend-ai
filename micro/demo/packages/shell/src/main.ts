@@ -42,45 +42,50 @@ const studios: StudioMeta[] = [
   {
     app: {
       name: 'boogu-image-edit',
-      directUrl: 'https://boogu-boogu-image-edit-gradio.ms.show',
+      // 反代同源：directUrl 走 iframe.src 直加载（不走 fetch+document.write 避免 Gradio hydration 冲突）
+      // /proxy/boogu/* → https://boogu-boogu-image-edit-gradio.ms.show/*
+      // 同源后 attachAutoHeight 直接 ResizeObserver 读 body.scrollHeight → 内容驱动
+      directUrl: '/proxy/boogu/',
       route: '/studio/boogu-image-edit',
       framework: 'external',
+      heightStrategy: 'auto',
       mpaFallbackUrl: 'https://modelscope.cn/studios/Boogu/boogu-image-edit-gradio',
     },
     title: 'Boogu 图像编辑',
-    desc: '涂抹蒙版 + prompt，生成式重绘（真实 Gradio，跨域直引）',
+    desc: '涂抹蒙版 + prompt，生成式重绘（反代同源，跨域 Gradio 也能内容驱动撑高）',
     cover: '🎨', icon: '🎨',
     author: 'Boogu', hot: 9420,
     group: 'AI 应用', category: '图像', badge: 'ext',
   },
   {
     app: {
-      name: 'image-edit',
-      entryUrl: '/image-edit/index.html',
-      route: '/studio/image-edit',
-      framework: 'native',
-      mpaFallbackUrl: '/legacy/image-edit',
-      prefetch: ['https://picsum.photos/seed/boogu-demo/512/512'],
+      name: 'flux-schnell',
+      directUrl: '/proxy/flux/',
+      route: '/studio/flux-schnell',
+      framework: 'external',
+      heightStrategy: 'auto',
+      mpaFallbackUrl: 'https://huggingface.co/spaces/black-forest-labs/FLUX.1-schnell',
     },
-    title: '图像编辑 Studio',
-    desc: '本地 mock：canvas 涂抹蒙版 + prompt 重绘（picsum 出图）',
+    title: 'FLUX.1 [schnell] 文生图',
+    desc: 'Black Forest Labs FLUX.1 schnell（反代同源，跨域 HF Space 也能内容驱动撑高）',
     cover: '🖼️', icon: '🖼️',
-    author: 'demo', hot: 1280,
-    group: 'AI 应用', category: '图像', badge: 'mock',
+    author: 'BlackForestLabs', hot: 4120,
+    group: 'AI 应用', category: '图像', badge: 'ext',
   },
   {
     app: {
-      name: 'text-gen',
-      entryUrl: '/text-gen/index.html',
-      route: '/studio/text-gen',
-      framework: 'native',
-      mpaFallbackUrl: '/legacy/text-gen',
+      name: 'qwen3-demo',
+      directUrl: '/proxy/qwen3/',
+      route: '/studio/qwen3-demo',
+      framework: 'external',
+      heightStrategy: 'auto',
+      mpaFallbackUrl: 'https://huggingface.co/spaces/Qwen/Qwen3-Demo',
     },
-    title: '文本生成 Studio',
-    desc: '本地 mock：prompt 流式输出（诗/代码/RAG/三体）',
+    title: 'Qwen3 对话',
+    desc: '通义千问 Qwen3 官方 Demo（反代同源，跨域 HF Space 也能内容驱动撑高）',
     cover: '✍️', icon: '✍️',
-    author: 'demo', hot: 2330,
-    group: 'AI 应用', category: '文本', badge: 'mock',
+    author: 'Qwen', hot: 5230,
+    group: 'AI 应用', category: '文本', badge: 'ext',
   },
   {
     app: {
@@ -140,6 +145,21 @@ const studios: StudioMeta[] = [
     cover: '📦', icon: '📦',
     author: 'icbu', hot: 720,
     group: '业务系统', category: '业务',
+  },
+  {
+    app: {
+      name: 'waterfall',
+      entryUrl: '/waterfall/index.html',
+      route: '/studio/waterfall',
+      framework: 'native',
+      mpaFallbackUrl: '/legacy/waterfall',
+      mode: 'wujie',
+    },
+    title: '瀑布流虚拟列表',
+    desc: '不等高瀑布流 + 虚拟滚动 + 无限下拉，纯 vanilla JS 零依赖',
+    cover: '🌊', icon: '🌊',
+    author: 'llab', hot: 1650,
+    group: 'AI 应用', category: '其他',
   },
   {
     app: {
@@ -280,9 +300,12 @@ function renderGrid() {
 }
 
 // ────────── 列表 ↔ 详情 ──────────
+let curHeightIframe: HTMLIFrameElement | null = null
+
 function showList() {
   listView.style.display = ''
   sandboxEl.style.display = 'none'
+  detachAutoHeight()
   crumbName.textContent = '应用列表'
   ctbarTitle.textContent = '应用列表'
   ctbarTag.textContent = `${studios.length} 个 Studio`
@@ -303,8 +326,116 @@ function openStudio(appName: string) {
         ? '<span class="pill mock">本地 mock</span>'
         : `<span class="pill">${meta.app.framework}</span>`
   ctbarMeta.textContent = `@${meta.author} · 🔥 ${meta.hot}`
+  prepareSkel()
   sandbox.activate(appName).catch((err) => log(`❌ activate err: ${err.message}`))
 }
+
+// ────────── 流式高度策略（ModelScope studios 风格） ──────────
+// 核心切换为 producer 端上报：子应用 SdkInjector 注入 __SANDBOX__.reportHeight，
+// 引擎 index.ts 接 postMessage + WeakMap 反查 + RAF/100ms 节流/ceil+1px 抖动过滤 → 设 iframe.height
+// shell 这里只负责骨架/分类（auto/postMessage/fixed）+ 上报超时兜底
+function prepareSkel() {
+  detachAutoHeight()
+  sandboxEl.classList.remove('ready', 'fixed')
+  document.getElementById('sb-skel')?.remove()
+  const skel = document.createElement('div')
+  skel.id = 'sb-skel'
+  skel.textContent = '加载中…'
+  sandboxEl.appendChild(skel)
+}
+
+function detachAutoHeight() {
+  curHeightIframe = null
+}
+
+function findVisibleIframe(): HTMLIFrameElement | null {
+  return Array.from(sandboxEl.querySelectorAll<HTMLIFrameElement>('iframe'))
+    .find((f) => getComputedStyle(f).visibility === 'visible') ?? null
+}
+
+function attachAutoHeight(strategy: 'auto' | 'postMessage' | 'fixed') {
+  const iframe = findVisibleIframe()
+  if (!iframe) return
+  curHeightIframe = iframe
+  // iframe 池默认 position:absolute;left:0 → 流式必须 relative
+  iframe.style.position = 'relative'
+  iframe.style.left = '0'
+  iframe.style.height = 'auto'
+  iframe.style.minHeight = '600px'  // 首次上报前的骨架兜底（防 0 高度闪烁）
+  iframe.style.display = 'block'
+
+  // fixed 策略：跨域第三方不可信 / 子应用不合作，固定 600px 内部滚
+  if (strategy === 'fixed') {
+    document.getElementById('sb-skel')?.remove()
+    sandboxEl.classList.add('fixed')
+    iframe.style.height = '600px'
+    return
+  }
+
+  // auto / postMessage：依赖子应用 __SANDBOX__.reportHeight 上报
+  // —— 同源 entryUrl 子应用：SdkInjector 注入 SDK，自动 measure + RO 上报
+  // —— 反代同源 directUrl 子应用：proxy 注入 SDK，同样自动上报
+  // —— 瀑布流虚拟列表等也走 content-driven：body 级滚动，子应用自然撑开 iframe
+  // 引擎收到 postMessage → height:sync 事件 → 移骨架 + 加 ready class（见下方 listener）
+  // 给最多 8s 等首次上报，超时则尝试同源直读兜底（auto 模式）
+  if (strategy === 'auto') {
+    setTimeout(() => {
+      if (curHeightIframe !== iframe) return
+      if (!sandboxEl.classList.contains('ready')) {
+        try {
+          const body = iframe.contentDocument?.body
+          if (body) {
+            const h = Math.max(body.scrollHeight, iframe.contentDocument!.documentElement.scrollHeight)
+            if (h > 0) {
+              iframe.style.height = h + 'px'
+              iframe.style.minHeight = ''
+              document.getElementById('sb-skel')?.remove()
+              sandboxEl.classList.add('ready')
+            }
+          }
+        } catch { /* 跨域读不到，忽略 */ }
+      }
+    }, 8000)
+  }
+}
+
+// 引擎 height:sync 事件：子应用上报高度 → 移骨架 + 标记 ready
+// 引擎已设过 iframe.style.height，这里只清状态
+sandbox.on('height:sync', () => {
+  if (!sandboxEl.classList.contains('ready')) {
+    sandboxEl.classList.add('ready')
+  }
+  document.getElementById('sb-skel')?.remove()
+})
+
+// v2 重构后不再需要父→子 scroll postMessage 桥：
+// wujie 模式下子应用 window.scrollY / addEventListener('scroll') 被 patch 直接转发到 parent，
+// 子应用引擎读主文档的 scrollY、监听主文档的 scroll 事件 —— 零改造工作。
+
+sandbox.on('activate:success', (payload) => {
+  const p = payload as { appName: string }
+  const meta = studios.find((s) => s.app.name === p.appName)
+
+  // 同步所有 wujie host 元素显隐：lifecycle 只切 iframe 可见性，不知道 host。
+  // 切换 app 时必须把旧 host 隐藏（display:none）+ 当前 app 的 host 显示。
+  // 否则旧 host 叠在新 app 的 iframe 上方，遮盖内容 → "混乱"现象。
+  const allHosts = sandboxEl.querySelectorAll<HTMLElement>('[data-wujie-host]')
+  allHosts.forEach((h) => {
+    const isCurrent = h.dataset.wujieHost === p.appName
+    h.style.display = isCurrent ? 'block' : 'none'
+  })
+
+  // wujie 模式：iframe 隐藏（visibility:hidden + 0 尺寸），主文档 host 元素接 DOM，
+  // 高度由主文档自然决定，跳过 attachAutoHeight（不需要同步 iframe 高度）
+  if (meta?.app.mode === 'wujie') {
+    document.getElementById('sb-skel')?.remove()
+    sandboxEl.classList.add('ready')
+    return
+  }
+  const strategy = meta?.app.heightStrategy ?? 'auto'
+  // 给引擎一拍把 visible class 切到位再量
+  setTimeout(() => attachAutoHeight(strategy), 0)
+})
 
 renderSide()
 renderCats()
@@ -430,4 +561,87 @@ function log(html: string) {
   logEl.appendChild(line)
   logEl.scrollTop = logEl.scrollHeight
   while (logEl.children.length > 80) logEl.removeChild(logEl.firstChild!)
+}
+
+// ────────── Footer 子应用（沙箱引擎加载的常驻 iframe）──────────
+// 设计要点：
+//   1. footer 作为 .ct (flex column，min-height 撑满 viewport-52px) 的最后一个 flex item，
+//      依靠 .stream-footer { margin-top:auto } 实现 sticky footer：
+//      内容不足一屏时吸底（与侧栏底部对齐）；超出一屏时 .ct 撑开 → margin-top:auto 退化 → footer 随 body 滚动。
+//   2. footer 走独立 sandbox 实例（poolSize:1）：常驻、不参与 studio 的 LRU 切换。
+//   3. heightStrategy:'auto' —— 同源 ResizeObserver 监听 footer body 高度，
+//      iframe 流式高度同步，44px 实时贴齐。
+//   4. CLS 守卫：shell HTML 已给 #footer-sandbox 预留 min-height:44px 占位，
+//      iframe 加载前后高度一致，footer 区域 0 布局抖动。
+const footerSandbox: SandboxInstance = createSandbox({
+  container: '#footer-sandbox',
+  apps: [{
+    name: 'footer',
+    entryUrl: '/footer/index.html',
+    route: '/footer',
+    framework: 'native',
+    heightStrategy: 'auto',
+  }],
+  poolSize: 1,
+  keepAliveLimit: 1,
+  user,
+  abConfig,
+  rum: (window as any).__RUM__,
+})
+
+footerSandbox.on('activate:success', (payload) => {
+  log(`✓ footer activate ${JSON.stringify(payload)}`)
+  // footer 是同源 entryUrl 子应用 → SdkInjector 注入 __SANDBOX__.reportHeight SDK
+  // 引擎收到 postMessage → height:sync → 自动设 iframe.height（见下方 listener）
+  // 这里只需把 iframe 从池默认的 absolute offscreen 移到流式位置
+  setTimeout(() => {
+    const iframe = document.querySelector<HTMLIFrameElement>('#footer-sandbox iframe')
+    if (!iframe) return
+    iframe.style.position = 'relative'
+    iframe.style.left = '0'
+    iframe.style.height = 'auto'
+    iframe.style.minHeight = '44px'  // #footer-sandbox 容器预占位的兜底
+    iframe.style.display = 'block'
+  }, 0)
+})
+
+// footer 高度也走 height:sync（独立 sandbox 实例独立监听）
+footerSandbox.on('height:sync', () => {
+  /* 引擎已直接设 iframe.height，这里无需操作 */
+})
+
+footerSandbox
+  .activate('footer')
+  .catch((err) => log(`❌ footer activate err: ${err.message}`))
+
+// 把 footer 心跳需要的 metrics 注入到子应用全局（footer 通过它显示 pool/keep-alive）
+setInterval(() => {
+  const footIframe = document.querySelector<HTMLIFrameElement>('#footer-sandbox iframe')
+  const cw = footIframe?.contentWindow as any
+  if (cw) {
+    cw.__SANDBOX_METRICS__ = sandbox.metrics()
+  }
+}, 1000)
+
+// ────────── CLS 量化指标 ──────────
+// Cumulative Layout Shift：累计布局偏移，<0.1 优秀，<0.25 需优化，>=0.25 差。
+// footer / iframe 高度同步是 CLS 高发区，这里实测验证流式布局方案。
+let cls = 0
+const clsEl = document.getElementById('cls-val')!
+const paintCls = () => {
+  clsEl.textContent = cls.toFixed(4)
+  clsEl.style.color = cls < 0.1 ? '#16a34a' : cls < 0.25 ? '#f59e0b' : '#ef4444'
+}
+paintCls()
+try {
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as any[]) {
+      // hadRecentInput=true 表示偏移来自用户输入（点击/滚动），不计入 CLS
+      if (!entry.hadRecentInput) cls += entry.value
+    }
+    paintCls()
+  }).observe({ type: 'layout-shift', buffered: true })
+} catch {
+  clsEl.textContent = 'n/a'
+  clsEl.style.color = '#86909c'
 }

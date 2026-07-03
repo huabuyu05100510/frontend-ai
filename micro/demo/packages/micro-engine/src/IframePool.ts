@@ -98,6 +98,10 @@ export class IframePool {
         delete (w as any).__USER__
         delete (w as any).__AB__
         delete (w as any).__RUM__
+        // wujie 模式 patch 还原：池里的 iframe 复用时（vue2/jquery 接手 wujie 用过的 iframe），
+        // patch 残留会污染下一个子应用（document.createElement 调主文档、body getter 返回已销毁的 host）
+        const uninstall = (w as any).__WUJIE_UNINSTALL__
+        if (typeof uninstall === 'function') uninstall()
       } catch {
         /* 跨域 about:blank 不会到这 */
       }

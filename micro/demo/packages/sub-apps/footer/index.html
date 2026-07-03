@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Studio Footer</title>
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang SC", sans-serif;
+    background: #001b32;
+    color: #cfd8e3;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    height: 44px;
+    padding: 0 20px;
+    overflow: hidden;
+  }
+  .ft { display: flex; align-items: center; gap: 14px; width: 100%; }
+  .ft .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e; flex-shrink: 0; }
+  .ft .dot.warn { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+  .ft .dot.err  { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+  .ft .copy { color: #cfd8e3; }
+  .ft .copy b { color: #fff; font-weight: 500; }
+  .ft .sep { color: #3c4d63; }
+  .ft .meta { color: #6b7c8f; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .ft .links { margin-left: auto; display: flex; gap: 12px; }
+  .ft .links a { color: #a9b7c9; text-decoration: none; cursor: pointer; }
+  .ft .links a:hover { color: #fff; }
+  .ft .ver { padding: 1px 6px; border-radius: 4px; background: rgba(59,130,246,.25); color: #bfdbfe; font-family: ui-monospace, monospace; }
+  /* 灰度回滚时主应用会通过 SDK 注入此变量 */
+  .ft.rollout-mpa { background: #3b1d1d; }
+  .ft.rollout-mpa .dot { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+</style>
+</head>
+<body>
+<div class="ft" id="ft">
+  <span class="dot" id="status-dot"></span>
+  <span class="copy">© 2026 <b>创空间 Studio</b> · 自研微前端沙箱引擎</span>
+  <span class="sep">|</span>
+  <span class="meta" id="runtime">runtime —</span>
+  <span class="ver" id="ver">v0.1.0</span>
+  <span class="links">
+    <a id="lnk-engine">引擎文档</a>
+    <a id="lnk-rum">RUM</a>
+    <a id="lnk-grayscale">灰度</a>
+  </span>
+</div>
+<script>
+  // 老应用零改造：沙箱会注入 window.__RUM__ / __SDK__ / __USER__
+  // 子应用独立打包、独立部署，主应用只提供容器和 SDK 注入
+  const RUM = window.__RUM__ || {
+    track: (e, p) => console.log('[footer] track', e, p),
+    metric: (n, v) => console.log('[footer] metric', n, v),
+  }
+
+  const runtimeEl = document.getElementById('runtime')
+  const verEl = document.getElementById('ver')
+  const statusDot = document.getElementById('status-dot')
+
+  // 通过 SDK 桥拿主应用版本（top.postMessage 代理，验证沙箱 SDK 通道）
+  try {
+    parent.postMessage({ type: 'footer:hello', from: 'footer' }, '*')
+  } catch (_) {}
+
+  // 构建时间戳（构建时注入 / 这里用启动时间 mock）
+  const builtAt = new Date().toISOString().slice(0, 10)
+  verEl.textContent = 'v0.1.0+' + builtAt
+
+  // 心跳：每 5s 上报存活 + 渲染主应用 metrics
+  let tick = 0
+  function refresh() {
+    tick++
+    const m = (window.__SANDBOX_METRICS__ = window.__SANDBOX_METRICS__ || {})
+    const pool = m.poolSize ?? '—'
+    const keepAlive = m.keepAlive?.length ?? 0
+    const activate = m.activateCount ?? 0
+    runtimeEl.textContent = `pool ${pool} · keep-alive ${keepAlive} · 激活 ${activate} · ❤ ${tick}`
+    RUM.metric('footer.tick', tick)
+  }
+  refresh()
+  setInterval(refresh, 5000)
+
+  // 监听主应用灰度状态变化（postMessage 推送）
+  window.addEventListener('message', (e) => {
+    const d = e.data || {}
+    if (d.type === 'footer:rollout') {
+      document.body.classList.toggle('rollout-mpa', d.backend === 'mpa')
+      statusDot.classList.toggle('warn', d.backend === 'mpa')
+    }
+    if (d.type === 'footer:metrics' && d.metrics) {
+      window.__SANDBOX_METRICS__ = d.metrics
+      refresh()
+    }
+  })
+
+  document.getElementById('lnk-engine').addEventListener('click', () => RUM.track('footer.click', { target: 'engine-doc' }))
+  document.getElementById('lnk-rum').addEventListener('click', () => RUM.track('footer.click', { target: 'rum' }))
+  document.getElementById('lnk-grayscale').addEventListener('click', () => RUM.track('footer.click', { target: 'grayscale' }))
+
+  RUM.track('footer.mount')
+</script>
+</body>
+</html>

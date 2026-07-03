@@ -25,6 +25,26 @@ export interface AppManifest {
   mpaFallbackUrl?: string
   /** 预取的 JS chunk（用于 IdlePrefetch） */
   prefetch?: string[]
+  /**
+   * 沙箱模式：
+   *   - 'iframe-sandbox'（默认）：传统 iframe 沙箱，子应用 DOM 在 iframe 内，content-driven 撑高。
+   *     局限：iframe 撑高后自身不滚动 → 虚拟列表依赖父→子 postMessage 桥。
+   *   - 'wujie'：iframe 仅作 JS 沙箱（display=none 隐藏），子应用 DOM 通过 document.getElementById
+   *     等 API patch 投影到主文档 host 元素。主文档原生滚动 → 虚拟列表 / content-visibility /
+   *     footer 全部原生工作。仅同源 entryUrl 应用支持。
+   */
+  mode?: 'iframe-sandbox' | 'wujie'
+}
+
+/**
+ * Wujie 模式上下文 —— installWujiePatches 把这些信息透给 iframe 内的 patch 脚本
+ */
+export interface WujieContext {
+  appName: string
+  /** 主文档中接收子应用 DOM 的容器元素 */
+  hostElement: HTMLElement
+  /** 在父 window 上挂 host 的 key（避免多 wujie 应用冲突） */
+  hostKey: string
 }
 
 export interface SandboxHooks {
@@ -44,6 +64,8 @@ export interface ParseContext {
   user?: unknown
   abConfig?: unknown
   rum: RumSink
+  /** 沙箱模式：'wujie' 时 SdkInjector 跳过 height-bridge 脚本（iframe 隐藏，无高度可同步） */
+  mode?: 'iframe-sandbox' | 'wujie'
 }
 
 export interface RumSink {
