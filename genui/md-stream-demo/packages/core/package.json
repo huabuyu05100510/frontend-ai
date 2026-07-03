@@ -1,0 +1,105 @@
+{
+  "name": "@a2ui-stream/core",
+  "version": "0.1.0",
+  "description": "Streaming UI protocol & SDK for LLM apps. Framework-agnostic core with property-test-protected invariants.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Heyi",
+  "homepage": "https://github.com/heyi/a2ui-stream#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heyi/a2ui-stream.git",
+    "directory": "packages/core"
+  },
+  "keywords": [
+    "llm",
+    "streaming",
+    "ai",
+    "agent",
+    "ui",
+    "protocol",
+    "vercel-ai-sdk",
+    "openai",
+    "anthropic",
+    "minimax",
+    "deepseek",
+    "qwen",
+    "function-call",
+    "partial-json"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.cjs"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js",
+      "default": "./dist/protocol.cjs"
+    },
+    "./registry": {
+      "types": "./dist/CardRegistry.d.ts",
+      "import": "./dist/CardRegistry.js",
+      "default": "./dist/CardRegistry.cjs"
+    },
+    "./provider": {
+      "types": "./dist/ProviderAdapter.d.ts",
+      "import": "./dist/ProviderAdapter.js",
+      "default": "./dist/ProviderAdapter.cjs"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "default": "./dist/runtime.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "default": "./dist/react.cjs"
+    },
+    "./adapters/openai-compatible": {
+      "types": "./dist/adapters/openai-compatible.d.ts",
+      "import": "./dist/adapters/openai-compatible.js",
+      "default": "./dist/adapters/openai-compatible.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "react": "^18.3.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
