@@ -1,0 +1,13 @@
+{
+  "name": "@micro/sub-apps",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node serve.mjs",
+    "start": "node serve.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

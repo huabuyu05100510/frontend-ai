@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>vue2-list 子应用（8 年老代码原样）</title>
+  <!-- 引 Element UI 老版本 CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/element-ui@2.15.14/lib/theme-chalk/index.css">
+  <style>
+    body { margin: 0; padding: 16px; font-family: system-ui; background: #fafbfc; }
+    .page-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+    .toolbar { margin-bottom: 12px; }
+    .note { color: #888; font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="page-title">商品管理（Vue 2 + Element UI 2.x）</div>
+    <div class="toolbar">
+      <!-- 坑#3 测试点：el-popover 在 Element UI 中默认 mount 到 body，iframe 沙箱下应正确相对容器定位 -->
+      <el-popover placement="bottom" title="筛选" width="240" trigger="click" content="演示 popover 定位（坑#3 验证点）">
+        <el-button slot="reference" type="primary" data-track="vue2.click.filter">筛选</el-button>
+      </el-popover>
+      <el-button data-track="vue2.click.batch">批量操作</el-button>
+    </div>
+    <el-table :data="list" border style="width: 100%">
+      <el-table-column prop="id" label="ID" width="80"></el-table-column>
+      <el-table-column prop="name" label="商品名"></el-table-column>
+      <el-table-column prop="price" label="价格" width="120"></el-table-column>
+    </el-table>
+    <div class="note">
+      ✅ 演示点：data-track 自动埋点（点击「筛选」→ 主应用 RUM 收到 vue2.click.filter）<br>
+      ✅ 演示点：popover 定位（坑#3，容器 transform 修正后应正确显示）<br>
+      ✅ 演示点：window.__USER__ 已自动注入：<span id="u"></span>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@2.7.16/dist/vue.js"></script>
+  <script src="https://unpkg.com/element-ui@2.15.14/lib/index.js"></script>
+  <script>
+    // 老代码原样 —— 没有任何 lifecycle 导出，没有 SSO/AB 调用
+    // 引擎靠 beforeParse hook 自动注入 SDK
+    new Vue({
+      el: '#app',
+      data() {
+        return {
+          list: [
+            { id: 1, name: '示例商品 A（mock）', price: '¥99' },
+            { id: 2, name: '示例商品 B（mock）', price: '¥199' },
+            { id: 3, name: '示例商品 C（mock）', price: '¥1299' },
+          ],
+        }
+      },
+      mounted() {
+        // 老代码通过全局变量读 SDK 注入数据 —— 零感知
+        document.getElementById('u').textContent = JSON.stringify(window.__USER__ || {})
+      },
+    })
+    // 坑#4 测试点：子应用内 pushState，应被 RouterBridge 同步到主应用 URL（不形成回环）
+    setTimeout(() => {
+      try {
+        history.pushState({}, '', '/vue2-list?from=child')
+      } catch (e) {
+        console.warn('[vue2] pushState failed (expected in some sandboxes):', e.message)
+      }
+    }, 500)
+  </script>
+</body>
+</html>

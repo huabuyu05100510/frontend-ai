@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>404 子应用（演示 Error Boundary）</title>
+</head>
+<body>
+  <!-- 此文件存在，但生产环境通过 Nginx 配置使 /broken 子应用 entryUrl 返回 404 -->
+  <!-- 在本 demo 中由 server/server.mjs 的路由把 /sub-apps/broken/entry.json 404 -->
+  <p>broken 子应用 —— 你不应看到此页（应被 ErrorBoundary 拦截跳 MPA）</p>
+</body>
+</html>

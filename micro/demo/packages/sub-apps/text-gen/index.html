@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Text Generation Studio (mock Gradio)</title>
+<style>
+  body { margin: 0; padding: 20px; font-family: -apple-system, system-ui, sans-serif; background: #f7f7f8; color: #1f2937; }
+  .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1200px; margin: 0 auto; }
+  .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }
+  .panel h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  label { display: block; font-size: 12px; color: #6b7280; margin: 10px 0 4px; }
+  textarea, input[type="text"] { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font: inherit; }
+  textarea { min-height: 140px; resize: vertical; }
+  .opts { display: flex; gap: 12px; flex-wrap: wrap; }
+  .opt { flex: 1; min-width: 120px; }
+  input[type="range"] { width: 100%; }
+  .btn { padding: 8px 16px; border: 1px solid #d1d5db; background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: 500; }
+  .btn.primary:hover { background: #1d4ed8; }
+  .btn.primary:disabled { background: #9ca3af; border-color: #9ca3af; cursor: not-allowed; }
+  .output { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.6; min-height: 240px; padding: 12px; background: #fafafa; border: 1px solid #e5e7eb; border-radius: 4px; }
+  .loading { display: inline-block; width: 14px; height: 14px; border: 2px solid #d1d5db; border-top-color: #2563eb; border-radius: 50%; animation: sp 0.8s linear infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .examples { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .ex { padding: 4px 10px; background: #f3f4f6; border-radius: 12px; font-size: 12px; cursor: pointer; }
+  .ex:hover { background: #e5e7eb; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="panel">
+    <h3>输入 · Text Generation (mock)</h3>
+    <label>Prompt</label>
+    <textarea id="prompt" placeholder="写一段 prompt 让模型生成回复…">写一首关于秋天的现代诗，四节，意境萧瑟</textarea>
+    <div class="examples">
+      <span class="ex">写一首关于秋天的现代诗</span>
+      <span class="ex">用 Python 实现快速排序</span>
+      <span class="ex">解释一下 RAG 是什么</span>
+      <span class="ex">总结三体第二部</span>
+    </div>
+    <div class="opts">
+      <div class="opt"><label>Max tokens <span id="mtv">512</span></label><input type="range" id="mt" min="64" max="2048" step="64" value="512"></div>
+      <div class="opt"><label>Temperature <span id="tpv">0.7</span></label><input type="range" id="tp" min="0" max="2" step="0.1" value="0.7"></div>
+    </div>
+    <button class="btn primary" id="run" style="margin-top:12px;width:100%;padding:10px;">生成 ▶</button>
+  </div>
+  <div class="panel">
+    <h3>输出</h3>
+    <div class="output" id="out">等待生成…</div>
+  </div>
+</div>
+<script>
+  const ta = document.getElementById('prompt')
+  document.querySelectorAll('.ex').forEach(el => el.addEventListener('click', () => ta.value = el.textContent))
+  document.getElementById('mt').addEventListener('input', e => document.getElementById('mtv').textContent = e.target.value)
+  document.getElementById('tp').addEventListener('input', e => document.getElementById('tpv').textContent = e.target.value)
+
+  // 几套「模型」回复（按 prompt 关键词路由）—— mock 用
+  const mockReplies = [
+    () => `《秋之诗》
+
+一
+风把昨日的叶，
+吹进我窗，
+像一个迟到的客人，
+带着凉意与告别。
+
+二
+街角的银杏，
+在等一场雨，
+等它把金色的边缘，
+磨成柔和的灰。
+
+三
+我从书页里抬起头，
+听见时间，
+在屋檐下，
+结成霜。
+
+四
+秋天是一个安静的孩子，
+它不说话，
+只是把世界，
+慢慢放轻。`,
+    () => `def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + middle + quicksort(right)
+
+# 示例
+print(quicksort([3, 6, 1, 8, 2, 9, 4]))  # [1, 2, 3, 4, 6, 8, 9]`,
+    () => `RAG (Retrieval-Augmented Generation) = 检索增强生成。
+
+核心思路：在 LLM 生成前，先从外部知识库检索相关片段，拼到 prompt 里，让模型"看着资料回答"。
+
+典型流程：
+1. 文档切块 → embedding → 入向量库
+2. 用户 query → embedding → 向量检索 top-k
+3. (query, retrieved_chunks) → LLM → 答案
+
+价值：
+- 缓解 LLM 知识截止 / 幻觉
+- 私有数据可"外挂"，不用微调
+- 答案可溯源（引用 chunk）`,
+    () => `《三体II·黑暗森林》简述：
+
+面壁计划 vs 三体危机。四位面壁者各自布下棋局，最终罗辑悟出"黑暗森林法则"——宇宙是猎场，暴露即毁灭。
+
+通过"咒语"锁定三体坐标，达成威慑纪元。章北海的星舰文明远走深空，末日之战自相残杀。罗辑以一己之力，将人类文明延续半个世纪。`,
+  ]
+  function pickMock(p) {
+    if (/秋|诗/.test(p)) return mockReplies[0]
+    if (/python|排序|算法/.test(p.toLowerCase())) return mockReplies[1]
+    if (/rag|检索/.test(p.toLowerCase())) return mockReplies[2]
+    if (/三体/.test(p)) return mockReplies[3]
+    return mockReplies[0]
+  }
+
+  document.getElementById('run').addEventListener('click', () => {
+    const btn = document.getElementById('run')
+    const out = document.getElementById('out')
+    const p = ta.value.trim()
+    if (!p) return
+    btn.disabled = true
+    btn.innerHTML = '<span class="loading"></span>生成中…'
+    out.innerHTML = '<span class="loading"></span>正在调用模型'
+    const reply = pickMock(p)
+    // 流式效果：一字一字显示
+    let i = 0
+    const text = reply()
+    out.innerHTML = ''
+    const tick = () => {
+      if (i >= text.length) {
+        btn.disabled = false
+        btn.innerHTML = '生成 ▶'
+        if (window.__RUM__) window.__RUM__.track('text-gen.done', { len: text.length })
+        return
+      }
+      // 一次吐 2~6 字
+      const step = 2 + Math.floor(Math.random() * 5)
+      out.textContent += text.slice(i, i + step)
+      i += step
+      setTimeout(tick, 20 + Math.random() * 40)
+    }
+    setTimeout(tick, 400)
+  })
+</script>
+</body>
+</html>

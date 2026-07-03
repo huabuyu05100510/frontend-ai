@@ -1,0 +1,38 @@
+{
+  "name": "micro-sandbox-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "concurrently -k -n engine,shell,subs,proxy \"pnpm --filter @micro/engine build --watch\" \"pnpm --filter @micro/shell dev\" \"pnpm --filter @micro/sub-apps dev\" \"pnpm --filter @micro/proxy dev\"",
+    "build": "pnpm --filter @micro/engine build && pnpm --filter @micro/shell build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "size": "size-limit"
+  },
+  "devDependencies": {
+    "@size-limit/file": "^11.1.4",
+    "@types/jsdom": "^21.1.7",
+    "concurrently": "^8.2.2",
+    "jsdom": "^24.0.0",
+    "puppeteer-core": "^25.3.0",
+    "size-limit": "^11.1.4",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  },
+  "size-limit": [
+    {
+      "name": "engine",
+      "path": "packages/micro-engine/dist/index.js",
+      "limit": "12 KB",
+      "gzip": true
+    },
+    {
+      "name": "shell index.html",
+      "path": "packages/shell/dist/index.html",
+      "limit": "3 KB",
+      "gzip": true
+    }
+  ]
+}

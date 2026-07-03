@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>react-detail 子应用（React 18 三段式 SSG）</title>
+  <style>
+    body { padding: 16px; font-family: system-ui; background: #fafbfc; }
+    .page-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+    .row { display: flex; gap: 16px; padding: 8px 0; border-bottom: 1px solid #eee; }
+    .row b { width: 120px; color: #666; }
+    .mismatch-toggle { margin: 12px 0; padding: 8px 12px; background: #fff8e1; border: 1px solid #ffe082; border-radius: 4px; font-size: 13px; }
+    .note { color: #888; font-size: 12px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <!-- 三段式 SSG 模式：构建时 SSG 出的骨架（标题 + 占位），client fetch 后填真实数据 -->
+  <section class="ssg-shell" id="root">
+    <div class="page-title">商品详情（React 18 + hydrate）</div>
+    <!-- 此占位骨架与 client 首次 render 输出一致，避免 hydrate mismatch -->
+    <div class="row"><b>商品 ID</b><span id="pid">--</span></div>
+    <div class="row"><b>商品名</b><span id="pname">--</span></div>
+    <div class="row"><b>价格</b><span id="pprice">--</span></div>
+    <div class="row"><b>库存</b><span id="pstock">--</span></div>
+  </section>
+  <div class="mismatch-toggle">
+    坑#10 测试点：勾选后让 client 首次 render 输出与 SSG 不一致 → 演示 hydrate mismatch 自动 fallback
+    <label><input type="checkbox" id="force-mismatch"> 强制 mismatch</label>
+  </div>
+  <div class="note">
+    ✅ 演示点：window.__USER__ 已注入：<span id="u"></span><br>
+    ✅ 演示点：data-track 自动埋点：<button data-track="react.click.buy" id="buy">购买（mock）</button>
+  </div>
+
+  <script>
+    // 老代码 / 三段式 SSG client 侧：先填 cookie 数据（轻量），再 fetch 重业务数据
+    window.__SSG_FILL__ = function () {
+      var u = window.__USER__ || {}
+      document.getElementById('u').textContent = JSON.stringify(u)
+    }
+  </script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script>
+    // 三段式第三段：client fetch BFF 拿数据填 DOM（无业务数据进 SSG HTML）
+    // 此处用假数据 setTimeout 模拟 fetch
+    function fillData(forceMismatch) {
+      var data = { id: 'P-1001', name: '示例商品（react 子应用）', price: '¥1299', stock: '248' }
+      document.getElementById('pid').textContent = forceMismatch ? 'MISMATCH-' + Date.now() : data.id
+      document.getElementById('pname').textContent = data.name
+      document.getElementById('pprice').textContent = data.price
+      document.getElementById('pstock').textContent = data.stock
+    }
+
+    // 用 ReactDOM 客户端 hydrate（复用 SSG DOM，不重建）
+    var root = ReactDOM.hydrateRoot(document.getElementById('root'), null)
+    void root
+
+    // 强制 mismatch 时，hydrate 会失败；react 18 自动 fallback 到 client createRoot 重渲染
+    function activate() {
+      var force = document.getElementById('force-mismatch').checked
+      try {
+        fillData(force)
+        window.__SSG_FILL__ && window.__SSG_FILL__()
+        // 坑#4 测试点：子应用 pushState 同步到主应用
+        if (!force) history.pushState({}, '', '/react-detail?id=P-1001')
+      } catch (e) {
+        // hydrate 失败 → 自动 fallback
+        console.warn('[react-detail] hydrate fallback:', e.message)
+        ReactDOM.createRoot(document.getElementById('root'))
+      }
+    }
+    setTimeout(activate, 200)
+  </script>
+</body>
+</html>

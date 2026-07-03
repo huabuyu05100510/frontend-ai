@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>jquery-form 子应用（jQuery + Bootstrap）</title>
+  <link rel="stylesheet" href="https://unpkg.com/bootstrap@3.4.1/dist/css/bootstrap.min.css">
+  <style>
+    body { padding: 16px; font-family: system-ui; background: #fafbfc; }
+    .page-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+    .note { color: #888; font-size: 12px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="page-title">入驻信息表单（jQuery + Bootstrap 3）</div>
+  <form id="form" class="form-horizontal">
+    <div class="form-group">
+      <label class="col-sm-2 control-label">公司名</label>
+      <div class="col-sm-6"><input type="text" class="form-control" name="company" placeholder="老代码原样"></div>
+    </div>
+    <div class="form-group">
+      <label class="col-sm-2 control-label">国家</label>
+      <div class="col-sm-6"><input type="text" class="form-control" name="country" value="CN"></div>
+    </div>
+    <div class="form-group">
+      <div class="col-sm-offset-2 col-sm-6">
+        <button type="button" class="btn btn-primary" data-track="jquery.click.submit" id="submit">提交</button>
+        <button type="button" class="btn btn-default" id="test-top">测试 top.postMessage（坑#2）</button>
+      </div>
+    </div>
+  </form>
+  <div class="note">
+    ✅ 演示点：window.__AB__ 已自动注入：<span id="ab"></span><br>
+    ✅ 演示点：data-track 自动埋点（点击「提交」→ 主应用 RUM 收到 jquery.click.submit）<br>
+    ✅ 演示点：top.postMessage —— 老代码无脑写 top.postMessage，沙箱代理后走 parent.postMessage<br>
+       <span id="top-result"></span>
+  </div>
+
+  <script src="https://unpkg.com/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://unpkg.com/bootstrap@3.4.1/dist/js/bootstrap.min.js"></script>
+  <script>
+    // 老代码原样 —— jQuery 风格的全局操作
+    $(function () {
+      $('#ab').text(JSON.stringify(window.__AB__ || {}))
+
+      $('#submit').on('click', function () {
+        alert('老 jQuery 表单 submit（mock，不真发请求）')
+      })
+
+      // 坑#2 测试点：老代码无脑用 top.postMessage
+      // 没代理时 top = window.top（祖先 iframe，可能跨域），会抛 SecurityError
+      // 沙箱代理后 top === window.parent，能正常发到主应用
+      $('#test-top').on('click', function () {
+        try {
+          window.top.postMessage({ type: 'jquery-test', from: 'jquery-form' }, '*')
+          $('#top-result').text('✅ top.postMessage 成功（top 已被代理到 parent）')
+        } catch (e) {
+          $('#top-result').text('❌ 失败：' + e.message)
+        }
+      })
+    })
+  </script>
+</body>
+</html>

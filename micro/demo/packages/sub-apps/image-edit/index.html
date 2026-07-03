@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Image Edit Studio (mock Gradio)</title>
+<style>
+  body { margin: 0; padding: 20px; font-family: -apple-system, system-ui, sans-serif; background: #f7f7f8; color: #1f2937; }
+  .layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; max-width: 1200px; margin: 0 auto; }
+  .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }
+  .panel h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #374151; }
+  .canvas-wrap { position: relative; width: 100%; aspect-ratio: 1/1; background:
+    linear-gradient(45deg, #f3f4f6 25%, transparent 25%) -10px 0,
+    linear-gradient(-45deg, #f3f4f6 25%, transparent 25%) -10px 0,
+    linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
+    linear-gradient(-45deg, transparent 75%, #f3f4f6 75%);
+    background-size: 20px 20px; border: 1px dashed #d1d5db; border-radius: 6px; overflow: hidden; }
+  canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .toolbar { margin-bottom: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn { padding: 6px 12px; border: 1px solid #d1d5db; background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .btn:hover { background: #f9fafb; }
+  .btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: 500; }
+  .btn.primary:hover { background: #1d4ed8; }
+  .btn.danger { color: #dc2626; }
+  label { display: block; font-size: 12px; color: #6b7280; margin: 10px 0 4px; }
+  input[type="range"] { width: 100%; }
+  textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font: inherit; resize: vertical; min-height: 80px; }
+  .hint { font-size: 11px; color: #9ca3af; margin-top: 6px; }
+  .result { width: 100%; aspect-ratio: 1/1; background: #f3f4f6; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 12px; border: 1px dashed #d1d5db; }
+  .result img { max-width: 100%; max-height: 100%; border-radius: 6px; }
+  .loading { display: inline-block; width: 14px; height: 14px; border: 2px solid #d1d5db; border-top-color: #2563eb; border-radius: 50%; animation: sp 0.8s linear infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="panel">
+    <h3>涂抹需要重绘的区域 · Image Edit (mock)</h3>
+    <div class="toolbar">
+      <button class="btn active" data-tool="brush">笔刷</button>
+      <button class="btn" data-tool="eraser">橡皮</button>
+      <button class="btn danger" id="clear">清空</button>
+      <button class="btn" id="load-demo">载入示例图</button>
+    </div>
+    <div class="canvas-wrap"><canvas id="cv" width="512" height="512"></canvas></div>
+    <div class="hint">提示：在画布上涂抹蒙版区域，配合右侧 prompt 点「生成」</div>
+  </div>
+  <div class="panel">
+    <h3>生成参数</h3>
+    <label>Prompt（描述要重绘成什么）</label>
+    <textarea id="prompt" placeholder="例如：a cute cat sitting on the grass, photorealistic">a red sports car, studio lighting, photorealistic</textarea>
+    <label>笔刷大小 <span id="bsz">24</span>px</label>
+    <input type="range" id="brush-size" min="4" max="80" value="24">
+    <label>重绘强度 <span id="str">0.75</span></label>
+    <input type="range" id="strength" min="0" max="1" step="0.05" value="0.75">
+    <button class="btn primary" id="run" style="width:100%;margin-top:12px;padding:10px;">生成 ✨</button>
+    <label style="margin-top:16px">结果预览</label>
+    <div class="result" id="result">等待生成…</div>
+  </div>
+</div>
+<script>
+  const cv = document.getElementById('cv')
+  const ctx = cv.getContext('2d')
+  let tool = 'brush'
+  let drawing = false
+  let lastX = 0, lastY = 0
+  let brushSize = 24
+  let hasMask = false
+  let baseImage = null
+
+  function setTool(t) {
+    tool = t
+    document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t))
+  }
+  document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)))
+  document.getElementById('brush-size').addEventListener('input', (e) => {
+    brushSize = +e.target.value
+    document.getElementById('bsz').textContent = brushSize
+  })
+  document.getElementById('strength').addEventListener('input', (e) => {
+    document.getElementById('str').textContent = e.target.value
+  })
+
+  function getPos(e) {
+    const r = cv.getBoundingClientRect()
+    return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    drawing = true
+    const p = getPos(e); lastX = p.x; lastY = p.y
+    drawSeg(lastX, lastY, lastX, lastY)
+  })
+  cv.addEventListener('pointermove', (e) => {
+    if (!drawing) return
+    const p = getPos(e)
+    drawSeg(lastX, lastY, p.x, p.y)
+    lastX = p.x; lastY = p.y
+  })
+  cv.addEventListener('pointerup', () => { drawing = false })
+  cv.addEventListener('pointerleave', () => { drawing = false })
+
+  function drawSeg(x1, y1, x2, y2) {
+    ctx.lineWidth = brushSize
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    if (tool === 'brush') {
+      ctx.strokeStyle = 'rgba(255, 80, 80, 0.6)'
+      ctx.globalCompositeOperation = 'source-over'
+      hasMask = true
+    } else {
+      ctx.strokeStyle = 'rgba(0,0,0,1)'
+      ctx.globalCompositeOperation = 'destination-out'
+    }
+    ctx.beginPath()
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+  }
+
+  document.getElementById('clear').addEventListener('click', () => {
+    ctx.clearRect(0, 0, cv.width, cv.height)
+    hasMask = false
+    if (baseImage) { ctx.drawImage(baseImage, 0, 0, cv.width, cv.height) }
+    document.getElementById('result').innerHTML = '等待生成…'
+  })
+
+  document.getElementById('load-demo').addEventListener('click', () => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      ctx.clearRect(0, 0, cv.width, cv.height)
+      ctx.drawImage(img, 0, 0, cv.width, cv.height)
+      baseImage = img
+      hasMask = false
+    }
+    img.src = 'https://picsum.photos/seed/boogu-demo/512/512'
+  })
+
+  document.getElementById('run').addEventListener('click', () => {
+    if (!hasMask) { alert('请先用笔刷涂抹需要重绘的区域'); return }
+    const btn = document.getElementById('run')
+    const result = document.getElementById('result')
+    btn.disabled = true
+    btn.innerHTML = '<span class="loading"></span>生成中…'
+    result.innerHTML = '<span class="loading"></span>处理中'
+    // mock：2s 后返回一张随机示例图作为「重绘结果」
+    setTimeout(() => {
+      const seed = encodeURIComponent(document.getElementById('prompt').value.slice(0, 20) || 'edit')
+      const out = document.createElement('img')
+      out.src = 'https://picsum.photos/seed/' + seed + '/' + Math.floor(Math.random() * 1000) + '/512'
+      result.innerHTML = ''
+      result.appendChild(out)
+      btn.disabled = false
+      btn.innerHTML = '生成 ✨'
+      if (window.__RUM__) window.__RUM__.track('image-edit.generate', { prompt: seed })
+    }, 1800)
+  })
+
+  // 初始载入示例
+  document.getElementById('load-demo').click()
+</script>
+</body>
+</html>
