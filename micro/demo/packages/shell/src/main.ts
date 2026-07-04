@@ -153,7 +153,9 @@ const studios: StudioMeta[] = [
       route: '/studio/waterfall',
       framework: 'native',
       mpaFallbackUrl: '/legacy/waterfall',
-      mode: 'wujie',
+      // 默认 iframe-sandbox 模式 + ScrollBridge（postMessage 父→子 scroll 桥）
+      // 如需对照 wujie DOM 投影方案，取消下一行注释：
+      // mode: 'wujie',
     },
     title: '瀑布流虚拟列表',
     desc: '不等高瀑布流 + 虚拟滚动 + 无限下拉，纯 vanilla JS 零依赖',
@@ -408,25 +410,16 @@ sandbox.on('height:sync', () => {
   document.getElementById('sb-skel')?.remove()
 })
 
-// v2 重构后不再需要父→子 scroll postMessage 桥：
-// wujie 模式下子应用 window.scrollY / addEventListener('scroll') 被 patch 直接转发到 parent，
-// 子应用引擎读主文档的 scrollY、监听主文档的 scroll 事件 —— 零改造工作。
+// ScrollBridge：父端 postMessage 'sandbox:parent-scroll' 注入滚动位置到 iframe，
+// iframe 内 SDK（SdkInjector 注入）patch window.scrollY/innerHeight + dispatch scroll event
+// 触发子应用虚拟列表引擎工作。content-driven iframe 自身没有 scroll 事件，必须靠父端注入。
+// 见 plans/humming-squishing-fern.md ScrollBridge 方案。
 
 sandbox.on('activate:success', (payload) => {
   const p = payload as { appName: string }
   const meta = studios.find((s) => s.app.name === p.appName)
 
-  // 同步所有 wujie host 元素显隐：lifecycle 只切 iframe 可见性，不知道 host。
-  // 切换 app 时必须把旧 host 隐藏（display:none）+ 当前 app 的 host 显示。
-  // 否则旧 host 叠在新 app 的 iframe 上方，遮盖内容 → "混乱"现象。
-  const allHosts = sandboxEl.querySelectorAll<HTMLElement>('[data-wujie-host]')
-  allHosts.forEach((h) => {
-    const isCurrent = h.dataset.wujieHost === p.appName
-    h.style.display = isCurrent ? 'block' : 'none'
-  })
-
-  // wujie 模式：iframe 隐藏（visibility:hidden + 0 尺寸），主文档 host 元素接 DOM，
-  // 高度由主文档自然决定，跳过 attachAutoHeight（不需要同步 iframe 高度）
+  // wujie 模式（对照版本）：iframe 隐藏，DOM 投影到主文档 host，跳过 attachAutoHeight
   if (meta?.app.mode === 'wujie') {
     document.getElementById('sb-skel')?.remove()
     sandboxEl.classList.add('ready')
@@ -436,6 +429,35 @@ sandbox.on('activate:success', (payload) => {
   // 给引擎一拍把 visible class 切到位再量
   setTimeout(() => attachAutoHeight(strategy), 0)
 })
+
+// ScrollBridge sender：把主文档滚动位置转发给当前 visible content-driven iframe
+// 用于虚拟列表引擎（content-driven iframe 自身无 scroll 事件，引擎绑 window.scroll 永不触发）
+// SDK 在子应用内（SdkInjector 注入）收 'sandbox:parent-scroll' 消息后 patch scrollY/innerHeight + dispatch
+let bridgeRaf = 0
+let bridgeLastY = -1
+window.addEventListener('scroll', () => {
+  if (bridgeRaf) return
+  bridgeRaf = requestAnimationFrame(() => {
+    bridgeRaf = 0
+    const y = window.scrollY | 0
+    if (Math.abs(y - bridgeLastY) < 4) return  // 4px 抖动过滤
+    bridgeLastY = y
+    // 找当前 visible iframe（content-driven，参与 body 流式布局的那个）
+    const iframe = Array.from(sandboxEl.querySelectorAll<HTMLIFrameElement>('iframe'))
+      .find((f) => {
+        const cs = getComputedStyle(f)
+        const r = f.getBoundingClientRect()
+        return cs.visibility === 'visible' && cs.display !== 'none' && r.height > 0
+      })
+    if (!iframe?.contentWindow) return
+    try {
+      iframe.contentWindow.postMessage(
+        { type: 'sandbox:parent-scroll', scrollTop: y, viewportHeight: window.innerHeight },
+        '*',
+      )
+    } catch { /* ignore */ }
+  })
+}, { passive: true })
 
 renderSide()
 renderCats()

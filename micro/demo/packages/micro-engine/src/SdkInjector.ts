@@ -108,6 +108,35 @@ export function injectSdk(dom: Document, ctx: ParseContext): void {
     // 注意：rum 必须保持是 head 的第一个 script（SandboxCore 测试断言 firstChild.textContent），
     // 所以 height 插到 rum 之后而非之前
     head.insertBefore(height, rum.nextSibling)
+
+    // 3. ScrollBridge SDK：解决 content-driven iframe + 虚拟列表的物理矛盾
+    //    content-driven iframe（高度=内容高度）自身没有 scroll 事件，子应用虚拟列表引擎
+    //    绑在 window.scroll 上 → 永不触发。父端 postMessage 'sandbox:parent-scroll' 注入滚动位置，
+    //    SDK patch window.scrollY/pageYOffset/innerHeight getter + dispatch 'scroll' event
+    //    触发子应用 _scrollHandler/_checkLoadMore 工作。子应用代码零改造。
+    //    与 wujie 的差别：DOM 留在 iframe（CSS 天然隔离），只 patch scroll 相关 API（不投影 DOM）
+    const scrollBridge = dom.createElement('script')
+    scrollBridge.textContent = `
+      (function(){
+        if (window.__SANDBOX_SCROLL_BRIDGE__) return;
+        window.__SANDBOX_SCROLL_BRIDGE__ = 1;
+        var state = { scrollTop: 0, viewportH: window.innerHeight };
+        // patch getter：子应用读 window.scrollY/innerHeight 时拿到 parent 注入的值
+        ['scrollY', 'pageYOffset'].forEach(function(p){
+          try { Object.defineProperty(window, p, { get: function(){ return state.scrollTop; }, configurable: true }); } catch(_) {}
+        });
+        try { Object.defineProperty(window, 'innerHeight', { get: function(){ return state.viewportH; }, configurable: true }); } catch(_) {}
+        // 收 parent 转发的 scroll：更新 state + dispatch 给 iframe window（触发子应用 _scrollHandler）
+        window.addEventListener('message', function(e){
+          var d = e.data;
+          if (!d || d.type !== 'sandbox:parent-scroll') return;
+          state.scrollTop = d.scrollTop | 0;
+          state.viewportH = d.viewportHeight | 0;
+          try { window.dispatchEvent(new Event('scroll')); } catch(_) {}
+        });
+      })();
+    `
+    head.insertBefore(scrollBridge, rum.nextSibling)
   }
 
   // 2. A+ SDK（mock url，生产是集团统一 CDN）
