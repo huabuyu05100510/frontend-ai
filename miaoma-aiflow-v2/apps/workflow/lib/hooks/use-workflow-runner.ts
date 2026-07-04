@@ -5,19 +5,10 @@
  */
 'use client'
 
-import type { ExecutionLogEntry, NodeKind } from '@miaoma-aiflow/ai-engine'
 import { useCallback, useRef, useState } from 'react'
 
-import type {
-    ErrorEventData,
-    NodeEndEventData,
-    NodeStartEventData,
-    NodeTraceInfo,
-    SSEEvent,
-    TestRunState,
-    WorkflowEndEventData,
-    WorkflowStartEventData,
-} from '@/lib/types/test-run'
+import { useWorkflowStream } from '@/lib/a2ui/use-workflow-stream'
+import type { TestRunState } from '@/lib/types/test-run'
 import { createInitialTestRunState } from '@/lib/types/test-run'
 
 interface FlowNode {
@@ -49,270 +40,75 @@ interface UseWorkflowRunnerReturn {
     reset: () => void
     isRunning: boolean
     abort: () => void
+    /**
+     * SDK 加成：暴露原始 parts 与 streamState 给 smith 可视化组件订阅。
+     * 旧消费者可忽略。
+     */
+    parts: ReturnType<typeof useWorkflowStream>['parts']
+    streamState: ReturnType<typeof useWorkflowStream>['streamState']
 }
 
 /**
- * Hook for executing workflows with real-time SSE updates
+ * useWorkflowRunner —— back-compat shim，内部委托给 useWorkflowStream（SDK 内核）。
+ *
+ * 改造前：手写 SSE buffer.split + 命令式 switch mutate + abort 静默丢数据
+ * 改造后：miaomaSseProvider 把 SSE 转 StreamPart，useA2UIStream 走纯 reducer
+ *
+ * 外部 API 完全保留（state/execute/reset/isRunning/abort），新增 parts/streamState
+ * 供 smith 可视化（双 tab：Protocol 调试器 + Timeline 时间轴）消费。
  */
-export function useWorkflowRunner({ appId, nodes, edges }: UseWorkflowRunnerOptions): UseWorkflowRunnerReturn {
-    const [state, setState] = useState<TestRunState>(createInitialTestRunState())
-    const abortControllerRef = useRef<AbortController | null>(null)
+export function useWorkflowRunner({
+    appId,
+    nodes,
+    edges,
+}: UseWorkflowRunnerOptions): UseWorkflowRunnerReturn {
+    const stream = useWorkflowStream({ appId, nodes, edges })
+    const [softState, setSoftState] = useState<TestRunState>(createInitialTestRunState())
+
+    // execute 时把 SDK projected state 同步到 softState，让 startTime/endTime 在 UI 上有值
+    const startTimeRef = useRef<Date | null>(null)
 
     const execute = useCallback(
         async (inputs: Record<string, unknown>) => {
-            // Abort any existing request
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort()
-            }
-
-            // Create new abort controller
-            abortControllerRef.current = new AbortController()
-
-            // Initialize node traces based on nodes (set all to pending)
-            const initialNodeTraces = new Map<string, NodeTraceInfo>()
-            for (const node of nodes) {
-                initialNodeTraces.set(node.id, {
-                    nodeId: node.id,
-                    nodeName: (node.data?.label as string) || node.id,
-                    nodeType: node.type as NodeKind,
-                    status: 'pending',
-                    logs: [],
-                })
-            }
-
-            // Set initial running state
-            setState({
+            startTimeRef.current = new Date()
+            setSoftState({
+                ...createInitialTestRunState(),
                 status: 'running',
+                startTime: startTimeRef.current,
                 inputs,
-                result: null,
-                startTime: new Date(),
-                endTime: null,
-                duration: 0,
-                executionId: null,
-                nodeTraces: initialNodeTraces,
-                totalTokens: 0,
+                nodeTraces: new Map(),
             })
-
-            try {
-                const response = await fetch(`/api/apps/${appId}/workflow/run`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ nodes, edges, inputs }),
-                    signal: abortControllerRef.current.signal,
-                })
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}))
-                    throw new Error(errorData.message || `HTTP ${response.status}`)
-                }
-
-                if (!response.body) {
-                    throw new Error('No response body')
-                }
-
-                const reader = response.body.getReader()
-                const decoder = new TextDecoder()
-                let buffer = ''
-
-                while (true) {
-                    const { done, value } = await reader.read()
-                    if (done) break
-
-                    buffer += decoder.decode(value, { stream: true })
-
-                    // Process complete SSE messages
-                    const lines = buffer.split('\n\n')
-                    buffer = lines.pop() || '' // Keep incomplete message in buffer
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const eventData = JSON.parse(line.slice(6)) as SSEEvent
-                                handleSSEEvent(eventData)
-                            } catch {
-                                // Ignore parse errors
-                            }
-                        }
-                    }
-                }
-
-                // Process any remaining buffer
-                if (buffer.startsWith('data: ')) {
-                    try {
-                        const eventData = JSON.parse(buffer.slice(6)) as SSEEvent
-                        handleSSEEvent(eventData)
-                    } catch {
-                        // Ignore parse errors
-                    }
-                }
-            } catch (error) {
-                if ((error as Error).name === 'AbortError') {
-                    // Request was aborted, don't update state
-                    return
-                }
-
-                setState(prev => ({
-                    ...prev,
-                    status: 'error',
-                    endTime: new Date(),
-                    duration: prev.startTime ? Date.now() - prev.startTime.getTime() : 0,
-                    result: {
-                        success: false,
-                        outputs: {},
-                        error: error instanceof Error ? error : new Error(String(error)),
-                        executionId: prev.executionId || '',
-                        duration: prev.startTime ? Date.now() - prev.startTime.getTime() : 0,
-                        logs: [],
-                    },
-                }))
-            }
+            await stream.execute(inputs)
         },
-        [appId, nodes, edges]
+        [stream],
     )
 
-    const handleSSEEvent = useCallback((event: SSEEvent) => {
-        switch (event.type) {
-            case 'workflow:start': {
-                const data = event.data as WorkflowStartEventData
-                setState(prev => ({
-                    ...prev,
-                    executionId: data.executionId,
-                }))
-                break
-            }
-
-            case 'node:start': {
-                const data = event.data as NodeStartEventData
-                setState(prev => {
-                    const newTraces = new Map(prev.nodeTraces)
-                    const existing = newTraces.get(data.nodeId)
-                    newTraces.set(data.nodeId, {
-                        nodeId: data.nodeId,
-                        nodeName: data.nodeName,
-                        nodeType: data.nodeType,
-                        status: 'running',
-                        startTime: new Date(event.timestamp),
-                        logs: existing?.logs || [],
-                    })
-                    return { ...prev, nodeTraces: newTraces }
-                })
-                break
-            }
-
-            case 'node:end': {
-                const data = event.data as NodeEndEventData
-                setState(prev => {
-                    const newTraces = new Map(prev.nodeTraces)
-                    const existing = newTraces.get(data.nodeId)
-                    if (existing) {
-                        newTraces.set(data.nodeId, {
-                            ...existing,
-                            status: data.success ? 'success' : 'error',
-                            endTime: new Date(event.timestamp),
-                            duration: data.duration,
-                            inputs: data.inputs,
-                            outputs: data.outputs,
-                            error: data.error?.message,
-                        })
-                    }
-                    return { ...prev, nodeTraces: newTraces }
-                })
-                break
-            }
-
-            case 'log': {
-                const logData = event.data as ExecutionLogEntry & { timestamp: string }
-                if (logData.nodeId) {
-                    setState(prev => {
-                        const newTraces = new Map(prev.nodeTraces)
-                        const existing = newTraces.get(logData.nodeId!)
-                        if (existing) {
-                            newTraces.set(logData.nodeId!, {
-                                ...existing,
-                                logs: [
-                                    ...existing.logs,
-                                    {
-                                        ...logData,
-                                        timestamp: new Date(logData.timestamp),
-                                    },
-                                ],
-                            })
-                        }
-                        return { ...prev, nodeTraces: newTraces }
-                    })
-                }
-                break
-            }
-
-            case 'workflow:end': {
-                const data = event.data as WorkflowEndEventData
-                setState(prev => ({
-                    ...prev,
-                    status: data.success ? 'success' : 'error',
-                    endTime: new Date(event.timestamp),
-                    duration: data.duration,
-                    totalTokens: data.totalTokens || 0,
-                    result: {
-                        success: data.success,
-                        outputs: data.outputs,
-                        error: data.error ? new Error(data.error) : undefined,
-                        executionId: prev.executionId || '',
-                        duration: data.duration,
-                        logs: [],
-                    },
-                }))
-                break
-            }
-
-            case 'error': {
-                const data = event.data as ErrorEventData
-                setState(prev => ({
-                    ...prev,
-                    status: 'error',
-                    endTime: new Date(event.timestamp),
-                    duration: prev.startTime ? Date.now() - prev.startTime.getTime() : 0,
-                    result: {
-                        success: false,
-                        outputs: {},
-                        error: new Error(data.message),
-                        executionId: prev.executionId || '',
-                        duration: prev.startTime ? Date.now() - prev.startTime.getTime() : 0,
-                        logs: [],
-                    },
-                }))
-                break
-            }
-        }
-    }, [])
-
     const reset = useCallback(() => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort()
-            abortControllerRef.current = null
-        }
-        setState(createInitialTestRunState())
-    }, [])
+        startTimeRef.current = null
+        setSoftState(createInitialTestRunState())
+        stream.reset()
+    }, [stream])
 
-    const abort = useCallback(() => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort()
-            abortControllerRef.current = null
-        }
-        setState(prev => ({
-            ...prev,
-            status: 'error',
-            endTime: new Date(),
-            duration: prev.startTime ? Date.now() - prev.startTime.getTime() : 0,
-        }))
-    }, [])
+    // 合并：projected state 提供节点 traces/executionId，softState 提供 startTime
+    const merged: TestRunState = useMemo_merge(stream.state, softState)
 
     return {
-        state,
+        state: merged,
         execute,
         reset,
-        isRunning: state.status === 'running',
-        abort,
+        isRunning: stream.isRunning,
+        abort: stream.abort,
+        parts: stream.parts,
+        streamState: stream.streamState,
+    }
+}
+
+function useMemo_merge(streamState: TestRunState, softState: TestRunState): TestRunState {
+    // streamState 包含 nodeTraces / executionId / result（SDK 投影）
+    // softState 包含 startTime（execute 时刻立即写入，SDK 流没出来之前 UI 不至于空）
+    return {
+        ...streamState,
+        startTime: softState.startTime ?? streamState.startTime,
+        inputs: softState.inputs ?? streamState.inputs,
     }
 }
